@@ -1,0 +1,4 @@
+session_state.json
+history/
+state.json
+*.lock
