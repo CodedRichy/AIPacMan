@@ -79,20 +79,24 @@ def depthFirstSearch(problem: SearchProblem) -> List[Directions]:
     """
     Search the deepest nodes in the search tree first.
     A simple graph-search DFS is sufficient for the initial implementation.
+    States are marked visited when expanded (popped), not when pushed, so
+    that the frontier explores successors in strict LIFO order.
     """
     start_state = problem.getStartState()
     frontier = util.Stack()
     frontier.push((start_state, []))
-    visited = {start_state}
+    visited = set()
 
     while not frontier.isEmpty():
         state, actions = frontier.pop()
+        if state in visited:
+            continue
+        visited.add(state)
         if problem.isGoalState(state):
             return actions
 
         for next_state, action, _ in problem.getSuccessors(state):
             if next_state not in visited:
-                visited.add(next_state)
                 frontier.push((next_state, actions + [action]))
 
     return []
@@ -120,12 +124,12 @@ def uniformCostSearch(problem: SearchProblem) -> List[Directions]:
     """Search the node of least total cost first."""
     start_state = problem.getStartState()
     frontier = util.PriorityQueue()
-    frontier.push((start_state, []), 0)
+    frontier.push((start_state, [], 0), 0)
     best_cost = {start_state: 0}
     visited = set()
 
     while not frontier.isEmpty():
-        state, actions = frontier.pop()
+        state, actions, g_cost = frontier.pop()
         if state in visited:
             continue
         visited.add(state)
@@ -134,10 +138,10 @@ def uniformCostSearch(problem: SearchProblem) -> List[Directions]:
             return actions
 
         for next_state, action, step_cost in problem.getSuccessors(state):
-            new_cost = best_cost[state] + step_cost
+            new_cost = g_cost + step_cost
             if next_state not in best_cost or new_cost < best_cost[next_state]:
                 best_cost[next_state] = new_cost
-                frontier.push((next_state, actions + [action]), new_cost)
+                frontier.push((next_state, actions + [action], new_cost), new_cost)
 
     return []
 
@@ -149,28 +153,29 @@ def nullHeuristic(state, problem=None) -> float:
     return 0
 
 def aStarSearch(problem: SearchProblem, heuristic=nullHeuristic) -> List[Directions]:
-    """Search the node that has the lowest combined cost and heuristic first."""
+    """Search the node that has the lowest combined cost and heuristic first.
+
+    States may be re-expanded when a cheaper path to them is found later,
+    which is required for correctness with inconsistent heuristics.  The
+    cumulative path cost is carried on the frontier so it need not be
+    recomputed by re-walking the whole path.
+    """
     start_state = problem.getStartState()
     frontier = util.PriorityQueue()
-    frontier.push((start_state, []), heuristic(start_state, problem))
+    frontier.push((start_state, [], 0), heuristic(start_state, problem))
     best_cost = {start_state: 0}
-    visited = set()
 
     while not frontier.isEmpty():
-        state, actions = frontier.pop()
-        if state in visited:
-            continue
-        visited.add(state)
-
+        state, actions, g_cost = frontier.pop()
         if problem.isGoalState(state):
             return actions
 
         for next_state, action, step_cost in problem.getSuccessors(state):
-            new_cost = best_cost[state] + step_cost
+            new_cost = g_cost + step_cost
             if next_state not in best_cost or new_cost < best_cost[next_state]:
                 best_cost[next_state] = new_cost
                 priority = new_cost + heuristic(next_state, problem)
-                frontier.push((next_state, actions + [action]), priority)
+                frontier.push((next_state, actions + [action], new_cost), priority)
 
     return []
 

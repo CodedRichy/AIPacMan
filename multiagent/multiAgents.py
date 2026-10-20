@@ -74,8 +74,24 @@ class ReflexAgent(Agent):
         newGhostStates = successorGameState.getGhostStates()
         newScaredTimes = [ghostState.scaredTimer for ghostState in newGhostStates]
 
-        "*** YOUR CODE HERE ***"
-        return successorGameState.getScore()
+        score = successorGameState.getScore()
+
+        # Reward moving closer to the nearest remaining food.
+        foodList = newFood.asList()
+        if foodList:
+            score += 1.0 / (min(manhattanDistance(newPos, food) for food in foodList) + 1)
+
+        # Strongly avoid ghosts, unless they are scared (then seek them out).
+        for ghostState, scaredTime in zip(newGhostStates, newScaredTimes):
+            ghostDist = manhattanDistance(newPos, ghostState.getPosition())
+            if scaredTime > 0:
+                score += 2.0 / (ghostDist + 1)
+            elif ghostDist <= 1:
+                score -= 1000
+            else:
+                score -= 1.0 / ghostDist
+
+        return score
 
 def scoreEvaluationFunction(currentGameState: GameState):
     """
@@ -173,9 +189,9 @@ class AlphaBetaAgent(MultiAgentSearchAgent):
             value = float('-inf')
             for action in legalActions:
                 value = max(value, self.alphabeta(gameState.generateSuccessor(agentIndex, action), depth, 1, alpha, beta))
+                if value > beta:
+                    return value
                 alpha = max(alpha, value)
-                if alpha >= beta:
-                    break
             return value
 
         nextAgent = agentIndex + 1
@@ -187,9 +203,9 @@ class AlphaBetaAgent(MultiAgentSearchAgent):
         value = float('inf')
         for action in legalActions:
             value = min(value, self.alphabeta(gameState.generateSuccessor(agentIndex, action), nextDepth, nextAgent, alpha, beta))
+            if value < alpha:
+                return value
             beta = min(beta, value)
-            if alpha >= beta:
-                break
         return value
 
     def getAction(self, gameState: GameState):
@@ -269,10 +285,38 @@ def betterEvaluationFunction(currentGameState: GameState):
     Your extreme ghost-hunting, pellet-nabbing, food-gobbling, unstoppable
     evaluation function (question 5).
 
-    DESCRIPTION: <write something here so we know what you did>
+    DESCRIPTION: Combines the game score with: proximity to the nearest food
+    (reciprocal Manhattan distance), distance from active ghosts (penalized,
+    with a large penalty when adjacent), and proximity to scared ghosts
+    (rewarded so Pacman chases them).  Because Q5 is graded with an
+    expectimax agent, this is a leaf evaluation function rather than a
+    reflex heuristic.
     """
-    "*** YOUR CODE HERE ***"
-    util.raiseNotDefined()
+    if currentGameState.isWin():
+        return float('inf')
+    if currentGameState.isLose():
+        return float('-inf')
+
+    pos = currentGameState.getPacmanPosition()
+    food = currentGameState.getFood().asList()
+    ghostStates = currentGameState.getGhostStates()
+    scaredTimes = [ghostState.scaredTimer for ghostState in ghostStates]
+
+    score = currentGameState.getScore()
+
+    if food:
+        score += 1.5 / (min(manhattanDistance(pos, f) for f in food) + 1)
+
+    for ghostState, scaredTime in zip(ghostStates, scaredTimes):
+        ghostDist = manhattanDistance(pos, ghostState.getPosition())
+        if scaredTime > 0:
+            score += 3.0 / (ghostDist + 1)
+        elif ghostDist <= 1:
+            score -= 500
+        else:
+            score -= 2.0 / ghostDist
+
+    return score
 
 # Abbreviation
 better = betterEvaluationFunction
