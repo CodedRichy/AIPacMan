@@ -289,6 +289,7 @@ class CornersProblem(search.SearchProblem):
             if not startingGameState.hasFood(*corner):
                 print('Warning: no food in corner ' + str(corner))
         self._expanded = 0 # DO NOT CHANGE; Number of search nodes expanded
+        self.heuristicInfo = {} # A dictionary for the heuristic to store information
 
     def getStartState(self):
         """
@@ -353,6 +354,7 @@ def mazeDistanceOnWalls(point1: Tuple[int, int], point2: Tuple[int, int], walls)
     """
     if point1 == point2:
         return 0
+    width, height = walls.width, walls.height
     frontier = util.Queue()
     frontier.push((point1, 0))
     visited = {point1}
@@ -360,6 +362,8 @@ def mazeDistanceOnWalls(point1: Tuple[int, int], point2: Tuple[int, int], walls)
         (x, y), dist = frontier.pop()
         for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
             nextx, nexty = x + dx, y + dy
+            if not (0 <= nextx < width and 0 <= nexty < height):
+                continue
             if (nextx, nexty) not in visited and not walls[nextx][nexty]:
                 if (nextx, nexty) == point2:
                     return dist + 1
@@ -384,6 +388,9 @@ def minimumSpanningTreeDistance(nodes, distanceFn):
         for i in range(len(nodes)):
             if i not in inTree and minEdges[i] < bestDist:
                 bestNode, bestDist = i, minEdges[i]
+        if bestNode is None:
+            # All remaining nodes are unreachable; no finite spanning tree.
+            return float('inf')
         total += bestDist
         inTree.add(bestNode)
         for i in range(len(nodes)):
@@ -413,9 +420,9 @@ def cornersHeuristic(state: Any, problem: CornersProblem):
     if not remaining:
         return 0
 
-    if not hasattr(problem, 'cornerDistanceCache'):
-        problem.cornerDistanceCache = {}
-    cache = problem.cornerDistanceCache
+    if 'cornerDistanceCache' not in problem.heuristicInfo:
+        problem.heuristicInfo['cornerDistanceCache'] = {}
+    cache = problem.heuristicInfo['cornerDistanceCache']
 
     def distance(a, b):
         key = (a, b) if a <= b else (b, a)
