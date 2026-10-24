@@ -10,6 +10,7 @@ Server-Sent Events (`GET /live/stream`); the keyboard comes back as small POSTs
 its getAction waits for the next tick, so one framework round = one tick = one frame.
 
 Routes added on top of server.py (which is reused, not edited)
+  GET  /play                     the arcade front end (static/play.html; API in arcade_api.py)
   GET  /live                     the live page (static/live.html)
   GET  /live/stream              SSE: header, frame, status, end
   GET  /api/live/state           current session summary
@@ -42,6 +43,7 @@ for _p in (HERE, GAME_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import arcade_api                # noqa: E402
 import commander as cmd          # noqa: E402
 import record as rec             # noqa: E402
 import server as base            # noqa: E402
@@ -405,7 +407,7 @@ class Session:
             self.publish_status()
 
 
-def build_game(params, sink, live):
+def build_game(params, sink, live, display_cls=None, builder_cls=None):
     """Create the game from validated params. Returns dict(game, agent, display)."""
     with in_game_dir():
         import layout as layout_mod
@@ -431,17 +433,21 @@ def build_game(params, sink, live):
         if params['pacman'] == 'browser':
             agent = BrowserKeyboardAgent(sink if live else None)
         else:
-            agent = pacman.loadAgent(params['pacman'], True)()
+            cls = pacman.loadAgent(params['pacman'], True)
+            try:
+                agent = cls(depth=str(params['depth'])) if params.get('depth') else cls()
+            except TypeError:
+                agent = cls()
             if live:
-                agent = Paced(agent, sink)
+                agent = sink.pace(agent) if hasattr(sink, 'pace') else Paced(agent, sink)
         rules = pacman.ClassicGameRules(30)
         meta = dict(layout=params['layout'], pacmanAgent=params['pacman'], ghostTeam=params['ghosts'],
                     seed=params['seed'], game=1, maxTicks=params.get('maxTicks'), tickRate=params['tickRate'],
                     recordedAt=time.strftime('%Y-%m-%dT%H:%M:%S'), live=live)
         # first build with a placeholder display to get the initial state, then swap in the real one
-        display = FrameDisplay(None, meta, sink, params.get('maxTicks'))
+        display = (display_cls or FrameDisplay)(None, meta, sink, params.get('maxTicks'))
         game = rules.newGame(lay, agent, ghosts, display, quiet=True)
-        display.builder = FrameBuilder(ghost_cls, game.state)
+        display.builder = (builder_cls or FrameBuilder)(ghost_cls, game.state)
         display.game = game
         return dict(game=game, agent=agent, display=display)
 
@@ -464,6 +470,10 @@ def clean_params(raw):
              level=max(1, min(int(raw.get('level', 1)), 99)),
              tickRate=min(max(float(raw.get('tickRate', 15)), 2.0), 60.0),
              seed=int(raw.get('seed', 0)))
+    if raw.get('campaign'):                       # arcade campaign: lives, levels, fruit (dashboard/session.py)
+        p.update(campaign=True, lives=max(1, min(int(raw.get('lives', 3)), 9)))
+    if raw.get('depth') is not None:
+        p['depth'] = max(1, min(int(raw['depth']), 4))
     if 'maxTicks' in raw and raw['maxTicks'] is not None:
         p['maxTicks'] = max(1, min(int(raw['maxTicks']), 20000))
     return p
@@ -481,7 +491,11 @@ class Live:
             if self.session is not None:
                 self.session.stop()
                 self.session.thread.join(timeout=3)
-            self.session = Session(self.hub, params)
+            if params.get('campaign'):
+                import session as campaign
+                self.session = campaign.CampaignSession(self.hub, params)
+            else:
+                self.session = Session(self.hub, params)
             self.session.thread.start()
             return self.session
 
@@ -536,6 +550,8 @@ class LiveHandler(base.Handler):
             return self._file(os.path.join(base.STATIC, 'live.html'))
         if u.path == '/live/stream':
             return self._live_stream()
+        if arcade_api.handle_get(self, u):
+            return
         if u.path == '/api/live/state':
             s = LIVE.session
             return self._json(s.status() if s else dict(state='idle'))
@@ -545,13 +561,15 @@ class LiveHandler(base.Handler):
         if not self._guard():
             return
         p = urlparse(self.path).path
-        if not p.startswith(('/api/key', '/api/live/')):
+        if not p.startswith(('/api/key', '/api/live/', '/api/benchmark/', '/api/compare/')):
             return super().do_POST()
         try:
             body = self._body()
         except ValueError:
             return self._err(400, 'bad json')
         try:
+            if arcade_api.handle_post(self, p, body):
+                return
             if p == '/api/key':
                 return self._json(dict(ok=LIVE.key(body)))
             if p == '/api/live/start':
@@ -664,7 +682,7 @@ def main(argv=None):
     srv = make_live_server(a.host, a.port)
     if a.autostart:
         LIVE.start(dict(arcade=True))
-    print('Pac-Man dashboard on http://%s:%d/  (live play: /live)' % (a.host, a.port), flush=True)
+    print('Pac-Man arcade on http://%s:%d/play   (replay desk: /, live view: /live.html)' % (a.host, a.port), flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
