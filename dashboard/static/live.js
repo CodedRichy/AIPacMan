@@ -2,7 +2,7 @@
 /* Hunt Table live client. No framework, no build step.
    Frames arrive over SSE at the tick rate; the canvas runs on requestAnimationFrame and
    interpolates every actor between the previous and the current frame (schema v2 `fpos`).
-   Keys go back with a tiny POST. The commander is a display element: a ring at the maze
+   Keys go back with a tiny POST. The commander is a display element: a stationary ghost at the maze
    centre, a dashed line to a ghost when the coordinator issues an order, and a text ticker
    fed only by frame.commander.messages (computed server-side from real coordinator state). */
 (function () {
@@ -264,14 +264,29 @@
   }
 
   function drawCommander(now, gp, f) {
-    const [rx, ry] = ringXY(), R = cell * 1.15;
+    const [rx, ry] = ringXY(), R = cell * 0.7;                                      // larger than the 0.4 hunters, and it never moves
     S.orders = S.orders.filter((o) => now - o.t0 < ORDER_MS);
     const hot = S.orders.length > 0;
-    ctx.strokeStyle = hot ? S.colors.order : alpha(S.colors.inkDim, 0.7); ctx.lineWidth = Math.max(1.2, cell * 0.06);
-    ctx.beginPath(); ctx.arc(rx, ry, R, 0, 6.2832); ctx.stroke();                 // hollow ring: never filled
-    ctx.lineWidth = Math.max(1, cell * 0.045); ctx.beginPath();
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { ctx.moveTo(rx + dx * R, ry + dy * R); ctx.lineTo(rx + dx * R * 1.28, ry + dy * R * 1.28); }
-    ctx.stroke();
+    const col = hot ? S.colors.order : alpha(S.colors.inkDim, 0.85);
+    let look = 'Stop';                                                               // eyes follow the ghost it is addressing
+    if (hot) {
+      const o = S.orders[S.orders.length - 1], i = o.ghost ? f.ghosts.findIndex((q) => q.index === o.ghost) : 0;
+      if (i >= 0) {
+        const dx = cx(gp[i][0]) - rx, dy = cy(gp[i][1]) - ry;
+        look = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'East' : 'West') : (dy > 0 ? 'South' : 'North');
+      }
+    }
+    bodyPath(rx, ry, R);
+    ctx.fillStyle = alpha(col, 0.16); ctx.fill();
+    ctx.strokeStyle = col; ctx.lineWidth = Math.max(1.2, cell * 0.06); ctx.stroke();  // outlined, not solid: it is not a player
+    drawEyes(rx, ry, R, look, true);
+    ctx.beginPath();                                                                 // a small crown marks the rank
+    ctx.moveTo(rx - R * 0.5, ry - R * 1.0); ctx.lineTo(rx - R * 0.55, ry - R * 1.5); ctx.lineTo(rx - R * 0.2, ry - R * 1.22);
+    ctx.lineTo(rx, ry - R * 1.58); ctx.lineTo(rx + R * 0.2, ry - R * 1.22); ctx.lineTo(rx + R * 0.55, ry - R * 1.5);
+    ctx.lineTo(rx + R * 0.5, ry - R * 1.0); ctx.closePath(); ctx.stroke();
+    ctx.fillStyle = col; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.font = `700 ${Math.max(9, cell * 0.36)}px 'Space Mono', monospace`;
+    ctx.fillText('COMMANDER', rx, ry + R * 1.2);
     for (const o of S.orders) {
       const age = now - o.t0;
       const p = reduceMotion ? 1 : Math.min(age / 110, 1);
@@ -280,7 +295,7 @@
       for (const gi of targets) {
         const i = f.ghosts.findIndex((q) => q.index === gi); if (i < 0) continue;
         const gx = cx(gp[i][0]), gy = cy(gp[i][1]), ang = Math.atan2(gy - ry, gx - rx);
-        const sx = rx + Math.cos(ang) * R, sy = ry + Math.sin(ang) * R;
+        const sx = rx + Math.cos(ang) * R * 1.05, sy = ry + Math.sin(ang) * R * 1.05;
         ctx.setLineDash([cell * 0.24, cell * 0.18]); ctx.strokeStyle = alpha(S.colors.order, a); ctx.lineWidth = Math.max(1.2, cell * 0.07);
         ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(lerp(sx, gx, p), lerp(sy, gy, p)); ctx.stroke(); ctx.setLineDash([]);
       }

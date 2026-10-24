@@ -61,9 +61,9 @@ python3 dashboard/tests/test_live.py           # live server, frames, commander 
   `server.py` is reused by subclassing, not edited. Requests with a non-loopback `Host`/`Origin` are refused.
 - `static/live.js` interpolates every actor between ticks on `requestAnimationFrame` (`fpos`); the
   `Smooth` toggle and `prefers-reduced-motion` turn that off. All animations are under 2 s, no bounce.
-- Commander: a hollow ring at the maze centre (not a game agent) and a side ticker. Each line is a diff of
+- Commander: a stationary crowned ghost labelled COMMANDER at the maze centre (not a game agent) and a side ticker. Each line is a diff of
   real coordinator state (`getTelemetry()` first, else `roles`/`assignedTargets`/`currentTacticalState`),
-  computed in `commander.py`; a dashed line runs from the ring to the ghost for 300 ms on a new order.
+  computed in `commander.py`; a dashed line runs from the Commander to the ghost for 300 ms on a new order.
   `C` or the Commander button hides it (remembered in localStorage). Ghost teams without a coordinator
   (RandomGhost) produce no messages.
 - `live.html?trace=<name>_v2.jsonl&t=120&pause=1` replays a v2 trace with the same renderer.

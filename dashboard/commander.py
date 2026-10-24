@@ -1,6 +1,6 @@
 """Commander feed: turns real coordinator state into short order messages.
 
-The "commander" in the dashboard is a display element only (a ring on the maze and
+The "commander" in the dashboard is a display element only (a stationary ghost named COMMANDER on the maze and
 a ticker); it is never a game agent.  Every message here is a *diff of actual
 coordinator state* between two ticks, read from `getTelemetry()` when the
 coordinator offers it and from its attributes (`roles`, `assignedTargets`,

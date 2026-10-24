@@ -84,6 +84,6 @@ From the command line use `ArcadeGhostTeam`/`DirectionalGhost`/`RandomGhost`.
 
 ## Live play and commander (dashboard)
 
-See `dashboard/README.md`. The commander ring is a display element, not an agent. Its ticker prints diffs
+See `dashboard/README.md`. The Commander ghost is a display element, not an agent. Its ticker prints diffs
 of `getTelemetry()` (or `roles`/`assignedTargets`/`currentTacticalState` when there is none); for
 `ArcadeGhostTeam` the telemetry is the arcade director (mode changes and personality targets).
