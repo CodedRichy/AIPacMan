@@ -167,6 +167,8 @@ def aStarSearch(problem: SearchProblem, heuristic=nullHeuristic) -> List[Directi
 
     while not frontier.isEmpty():
         state, actions, g_cost = frontier.pop()
+        if g_cost > best_cost[state]:
+            continue  # stale entry: a cheaper path to this state was queued
         if problem.isGoalState(state):
             return actions
 
