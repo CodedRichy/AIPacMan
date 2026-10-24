@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Run a command inside its own systemd scope with a hard memory cap, so a runaway
+# job is killed alone instead of the OOM killer taking down VS Code / Claude Code.
+# usage: tools/capped [-m 4G] -- python3 benchmarks/run_benchmark.py ...
+MEM=4G
+if [ "$1" = "-m" ]; then MEM="$2"; shift 2; fi
+[ "$1" = "--" ] && shift
+exec systemd-run --user --scope --quiet -p MemoryMax="$MEM" -p MemorySwapMax=0 -- "$@"
