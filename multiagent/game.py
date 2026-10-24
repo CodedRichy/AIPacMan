@@ -134,6 +134,7 @@ class AgentState:
         self.configuration = startConfiguration
         self.isPacman = isPacman
         self.scaredTimer = 0
+        self.respawnTimer = 0  # rounds a just-eaten ghost sits out before hunting again
         # state below potentially used for contest only
         self.numCarrying = 0
         self.numReturned = 0
@@ -147,15 +148,17 @@ class AgentState:
     def __eq__(self, other):
         if other == None:
             return False
-        return self.configuration == other.configuration and self.scaredTimer == other.scaredTimer
+        return (self.configuration == other.configuration and self.scaredTimer == other.scaredTimer
+                and self.respawnTimer == other.respawnTimer)
 
     def __hash__(self):
-        return hash(hash(self.configuration) + 13 * hash(self.scaredTimer))
+        return hash(hash(self.configuration) + 13 * hash(self.scaredTimer) + 17 * hash(self.respawnTimer))
 
     def copy(self):
         state = AgentState(self.start, self.isPacman)
         state.configuration = self.configuration
         state.scaredTimer = self.scaredTimer
+        state.respawnTimer = self.respawnTimer
         state.numCarrying = self.numCarrying
         state.numReturned = self.numReturned
         return state
