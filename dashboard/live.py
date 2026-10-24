@@ -561,7 +561,7 @@ class LiveHandler(base.Handler):
         if not self._guard():
             return
         p = urlparse(self.path).path
-        if not p.startswith(('/api/key', '/api/live/', '/api/benchmark/', '/api/compare/')):
+        if not p.startswith(('/api/key', '/api/live/', '/api/benchmark/', '/api/compare/', '/api/versus/')):
             return super().do_POST()
         try:
             body = self._body()

@@ -1,9 +1,11 @@
 // Every screen. Each returns { back, crumb, hints, bg?, destroy? } for the router and footer.
-import { h, api, store, fmtScore } from './util.js';
+import { h, api, store, fmtScore, reduceMotion } from './util.js';
 import { mountGame, pacIcon } from './game.js';
 import { mountSearchViz } from './searchviz.js';
 import { LEVELS, flowSvg } from './levels.js';
 import * as LY from './layers.js';
+import * as MD from './modes.js';
+import { ArcadeView } from './render.js';
 
 // ---- keyboard list helpers -------------------------------------------------------------------------------------
 function keys(handler) {
@@ -17,11 +19,12 @@ function keys(handler) {
 }
 
 /** Vertical arcade menu: Up/Down, Enter, mouse hover and click. */
-function listMenu(ul, items, { onFocus, onActivate, wrap = true } = {}) {
+function listMenu(ul, items, { onFocus, onActivate, wrap = true, numbers = false } = {}) {
+  if (numbers) ul.classList.add('numbered');
   let i = 0;
   const btns = items.map((it, n) => {
     const b = h('button', { class: 'mi', role: 'menuitem', tabindex: '-1', 'data-autofocus': n === 0 ? '' : null,
-      onmouseenter: () => set(n), onfocus: () => set(n), onclick: () => onActivate(it, n) }, h('span', { class: 'mi-cur', 'aria-hidden': 'true' }), h('span', { class: 'mi-l' }, it.label), it.tag ? h('span', { class: 'mi-tag' }, it.tag) : null);
+      onmouseenter: () => set(n), onfocus: () => set(n), onclick: () => onActivate(it, n) }, h('span', { class: 'mi-cur', 'aria-hidden': 'true' }), it.content || h('span', { class: 'mi-l' }, it.label), it.tag ? h('span', { class: 'mi-tag' }, it.tag) : null, numbers && n < 9 ? h('kbd', { class: 'mi-key', 'aria-hidden': 'true' }, String(n + 1)) : null);
     return b;
   });
   ul.replaceChildren(...btns.map((b) => h('li', {}, b)));
@@ -35,6 +38,7 @@ function listMenu(ul, items, { onFocus, onActivate, wrap = true } = {}) {
     if (e.key === 'ArrowDown' || e.key === 's') { e.preventDefault(); set(i + 1); btns[i].scrollIntoView({ block: 'nearest' }); }
     else if (e.key === 'ArrowUp' || e.key === 'w') { e.preventDefault(); set(i - 1); btns[i].scrollIntoView({ block: 'nearest' }); }
     else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onActivate(items[i], i); }
+    else if (numbers && /^[1-9]$/.test(e.key) && Number(e.key) <= items.length) { e.preventDefault(); set(Number(e.key) - 1); onActivate(items[i], i); }
   });
   return { set, off, get index() { return i; } };
 }
@@ -46,75 +50,158 @@ export async function title(root, ctx) {
   const go = () => ctx.go('#/menu');
   root.replaceChildren(h('section', { class: 'title', onclick: go, 'data-autofocus': '', tabindex: '-1' },
     wordmark(false),
-    h('p', { class: 'sub' }, 'SEARCH · MULTI-AGENT · GHOST TEAMS'),
+    h('p', { class: 'sub' }, 'PAC-MAN VS SMARTER GHOSTS'),
     h('p', { class: 'press blink' }, h('button', { class: 'press-b', onclick: (e) => { e.stopPropagation(); go(); } }, 'PRESS ENTER')),
-    h('p', { class: 'credit' }, 'FREE PLAY · BERKELEY CS188 FRAMEWORK · LOCALHOST ONLY')));
+    h('p', { class: 'credit' }, 'FREE PLAY · RUNS ONLY ON YOUR COMPUTER')));
   const off = keys((e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
   return { bg: true, crumb: [], hints: [['Enter', 'START'], ['click', 'START']], destroy: off };
 }
 
 // ---- main menu ---------------------------------------------------------------------------------------------------
 const MENU = [
-  { label: 'PLAY', hash: '#/play', desc: 'Steer Pac-Man yourself against any ghost team. Three lives, extra life at 10,000.' },
-  { label: 'WATCH AI', hash: '#/watch', desc: 'Pick a Pac-Man agent (greedy, minimax, alpha-beta, expectimax) and watch it think.' },
-  { label: 'LEVEL SELECT', hash: '#/levels', desc: 'The project map: one level per phase, with a demo and the real numbers.' },
-  { label: 'HIGH SCORES', hash: '#/scores', desc: 'Which ghost team hunts best? Ranked from the newest benchmark.' },
-  { label: 'REPLAYS', hash: '#/replays', desc: 'Recorded games you can pause, step through and study.' },
-  { label: 'OPTIONS', hash: '#/options', desc: 'Game speed, smooth motion, scanlines, default overlay.' },
-  { label: 'ABOUT', hash: '#/about', desc: 'What this is, controls, credits.' },
+  { label: 'PLAY', hash: '#/play', desc: 'Pick a game mode and play Pac-Man against the ghosts.' },
+  { label: 'WATCH', hash: '#/watch', desc: 'Let an AI play Pac-Man while you watch how it decides.' },
+  { label: 'LEARN', hash: '#/levels', desc: 'A guided tour of the project, one step at a time, with a demo for each step.' },
+  { label: 'SCORES', hash: '#/scores', desc: 'Which ghost team catches Pac-Man best? Plus your own best scores.' },
+  { label: 'MORE', hash: '#/more', desc: 'Replays of recorded games, options and about.' },
 ];
 export async function menu(root, ctx) {
   const ul = h('ul', { class: 'menu', role: 'menu', 'aria-label': 'Main menu' });
   const desc = h('p', { class: 'menu-desc', 'aria-live': 'polite' });
   root.replaceChildren(h('section', { class: 'menu-screen' }, wordmark(true), ul, desc));
-  const m = listMenu(ul, MENU, { onFocus: (it) => { desc.textContent = it.desc; }, onActivate: (it) => ctx.go(it.hash) });
-  return { bg: true, back: '#/title', crumb: [], hints: [['UP DOWN', 'MOVE'], ['Enter', 'SELECT'], ['Esc', 'TITLE']], destroy: m.off };
+  const m = listMenu(ul, MENU, { onFocus: (it) => { desc.textContent = it.desc; }, onActivate: (it) => ctx.go(it.hash), numbers: true });
+  return { bg: true, back: '#/title', crumb: [], hints: [['UP DOWN', 'MOVE'], ['Enter', 'SELECT'], ['1-5', 'JUMP'], ['Esc', 'TITLE']], destroy: m.off };
 }
 
-// ---- setup (PLAY / WATCH AI) -----------------------------------------------------------------------------------
+const MORE = [
+  { label: 'REPLAYS', hash: '#/replays', desc: 'Games that were recorded earlier. Pause them, step through them and study them.' },
+  { label: 'OPTIONS', hash: '#/options', desc: 'Game speed, smooth motion, scanlines and the thinking switch.' },
+  { label: 'ABOUT', hash: '#/about', desc: 'What this is, the controls and the credits.' },
+];
+export async function more(root, ctx) {
+  const ul = h('ul', { class: 'menu', role: 'menu', 'aria-label': 'More' });
+  const desc = h('p', { class: 'menu-desc', 'aria-live': 'polite' });
+  root.replaceChildren(h('section', { class: 'menu-screen' }, h('h2', { class: 'screen-t' }, 'MORE'), ul, desc));
+  const m = listMenu(ul, MORE, { onFocus: (it) => { desc.textContent = it.desc; }, onActivate: (it) => ctx.go(it.hash), numbers: true });
+  return { bg: true, back: '#/menu', crumb: ['MORE'], hints: [['UP DOWN', 'MOVE'], ['Enter', 'OPEN'], ['1-3', 'JUMP'], ['Esc', 'MENU']], destroy: m.off };
+}
+
+// ---- mode picker (first step of PLAY) -------------------------------------------------------------------------------
+const WHO = { classic: 'YOU STEER', ours: 'YOU STEER', arcade: 'YOU STEER', think: 'AI STEERS', versus: 'AI STEERS' };
+export async function modePicker(root, ctx) {
+  let thinking = store.get('pac.think', MD.thinkingOn(ctx.app.opts().intel));
+  const ul = h('ul', { class: 'menu modes', role: 'menu', 'aria-label': 'Game modes' });
+  const swLab = h('span', { class: 'mi-l' });
+  const paintSw = () => { swLab.textContent = 'SHOW THE THINKING: ' + (thinking ? 'ON' : 'OFF'); };
+  paintSw();
+  const items = [
+    ...MD.MODES.map((m) => ({ mode: m, tag: WHO[m.id], content: h('span', { class: 'mode-body' },
+      h('span', { class: 'mode-name' }, m.name), h('span', { class: 'mode-what' }, m.what), h('span', { class: 'mode-see' }, m.see)) })),
+    { sw: true, content: swLab, desc: 'ON draws each ghost’s job, route and orders on the maze while you play. OFF is just the game. Press T any time.' },
+    { custom: true, label: 'CUSTOM...', desc: 'Choose the maze, the ghost team and the rules yourself.' },
+  ];
+  const note = h('p', { class: 'menu-desc', 'aria-live': 'polite' });
+  root.replaceChildren(h('section', { class: 'menu-screen picker' }, h('h2', { class: 'screen-t' }, 'CHOOSE A MODE'), ul, note));
+  const flip = () => { thinking = !thinking; store.set('pac.think', thinking); paintSw(); };
+  const m = listMenu(ul, items, {
+    onFocus: (it) => { note.textContent = it.mode ? (it.mode.id === 'think' ? 'This mode always shows the thinking.' : '') : it.desc; },
+    onActivate: (it) => {
+      if (it.sw) return flip();
+      if (it.custom) return ctx.go('#/play/custom');
+      store.set('pac.lastMode', it.mode.id);
+      ctx.go(MD.runHash(it.mode, { seed: it.mode.seed != null ? it.mode.seed : Math.floor(Math.random() * 9000), thinking }));
+    },
+    numbers: true,
+  });
+  const last = MD.MODE_IDS.indexOf(store.get('pac.lastMode', 'ours'));
+  m.set(Math.max(0, last));
+  const off2 = keys((e) => {
+    if (e.key === 't' || e.key === 'T') { flip(); }
+    else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && items[m.index].sw) { e.preventDefault(); flip(); }
+  });
+  return { back: '#/menu', crumb: ['PLAY'], hints: [['UP DOWN', 'CHOOSE'], ['Enter', 'START'], ['1-7', 'JUMP'], ['T', 'THINKING'], ['Esc', 'MENU']], destroy: () => { m.off(); off2(); } };
+}
+
+// ---- custom setup (CUSTOM from the picker, and WATCH) -------------------------------------------------------------
+const GROUP_NAME = { main: 'TEAMS', experimental: 'EXPERIMENTAL', maze: 'MAZES', demo: 'DEMO MAZES', ai: 'AI PAC-MAN' };
 export async function setup(root, ctx, kind) {
   const meta = await ctx.app.getMeta();
   const saved = store.get('pac.setup.' + kind, {});
-  const opts = ctx.app.opts();
   const S = { layout: saved.layout || (kind === 'play' ? 'originalClassic' : 'smallClassic'),
-    ghosts: saved.ghosts || (kind === 'play' ? 'ArcadeGhostTeam' : 'DirectionalGhost'),
-    arcade: saved.arcade != null ? saved.arcade : kind === 'play',
-    intel: saved.intel || opts.intel, pacman: saved.pacman || 'AlphaBetaAgent', depth: saved.depth || 2 };
-  const teamChoices = () => meta.teams.filter((t) => S.arcade || !t.arcadeOnly).map((t) => ({ v: t.name, l: t.name.replace(/GhostTeam$/, '').replace('Directional', 'Berkeley') .toUpperCase() || t.name }));
+    ghosts: saved.ghosts || (kind === 'play' ? 'EnhancedCoordinatedGhostTeam' : 'DirectionalGhost'),
+    arcade: saved.arcade != null ? saved.arcade : false,
+    intel: saved.intel === 'classic' || saved.intel == null ? 'classic' : 'teacher', pacman: saved.pacman || 'AlphaBetaAgent', depth: saved.depth || 2 };
+  const pacInfo = () => meta.pacmen.find((p) => p.name === S.pacman) || {};
+  const teamChoices = () => meta.teams.filter((t) => S.arcade || !t.arcadeOnly)
+    .map((t) => ({ v: t.name, l: t.label.toUpperCase(), g: t.group === 'experimental' ? 'experimental' : 'main', blurb: t.blurb }));
+  const mazeChoices = () => meta.layouts.map((l) => ({ v: l, l: MD.niceMaze(l), g: l.startsWith('demo_') ? 'demo' : 'maze', blurb: MD.mazeBlurb(l) }));
   const rows = () => {
     const r = [];
+    r.push({ id: 'layout', grp: 'BASIC', label: 'MAZE', choices: mazeChoices(), desc: () => MD.mazeBlurb(S.layout) });
+    r.push({ id: 'ghosts', grp: 'BASIC', label: 'GHOST TEAM', choices: teamChoices(), desc: () => { const t = meta.teams.find((x) => x.name === S.ghosts) || {}; return t.blurb; } });
     if (kind === 'watch') {
-      r.push({ id: 'pacman', label: 'PAC-MAN', choices: meta.pacmen.map((p) => ({ v: p.name, l: p.name.replace('Agent', '').toUpperCase() })), desc: () => (meta.pacmen.find((p) => p.name === S.pacman) || {}).blurb });
-      const dep = (meta.pacmen.find((p) => p.name === S.pacman) || {}).depth;
-      r.push({ id: 'depth', label: 'DEPTH', choices: dep ? [1, 2, 3].map((d) => ({ v: d, l: String(d) })) : [{ v: S.depth, l: '-' }], desc: () => (dep ? 'Plies of look-ahead. Each extra ply costs far more time.' : 'This agent does not look ahead.') });
+      r.push({ id: 'pacman', grp: 'ADVANCED', label: 'PAC-MAN IS', choices: meta.pacmen.map((p) => ({ v: p.name, l: p.name.replace('Agent', '').toUpperCase(), g: 'ai', blurb: p.blurb })), desc: () => pacInfo().blurb });
+      r.push({ id: 'depth', grp: 'ADVANCED', label: 'LOOK-AHEAD', choices: pacInfo().depth ? [1, 2, 3].map((d) => ({ v: d, l: d + (d === 1 ? ' STEP' : ' STEPS') })) : [{ v: S.depth, l: '-' }],
+        desc: () => (pacInfo().depth ? 'How many moves ahead the AI thinks. Each extra step makes it much slower.' : 'This AI does not look ahead.') });
     }
-    r.push({ id: 'layout', label: 'MAZE', choices: meta.layouts.map((l) => ({ v: l, l: l.replace(/^demo_/, 'DEMO ').replace(/Classic$/, '').replace(/_/g, ' ').toUpperCase() })), desc: () => (S.layout.startsWith('demo_') ? 'A small hand-built maze that shows one ghost tactic.' : 'A classic Berkeley maze.') });
-    r.push({ id: 'ghosts', label: 'GHOSTS', choices: teamChoices(), desc: () => (meta.teams.find((t) => t.name === S.ghosts) || {}).blurb });
-    r.push({ id: 'arcade', label: 'RULES', choices: [{ v: false, l: 'BERKELEY' }, { v: true, l: 'ARCADE' }], desc: () => (S.arcade ? 'Real-game speeds, scatter and chase timers, ghost house, fruit. Scoring: dots 10, pellets 50, ghosts 200-1600.' : 'Course rules: grid moves, -1 per move, +10 per dot, -500 when caught, +500 for clearing.') });
-    r.push({ id: 'intel', label: 'INTEL', choices: [{ v: 'classic', l: 'OFF' }, { v: 'coach', l: 'COACH' }, { v: 'teacher', l: 'TEACHER' }], desc: () => ({ classic: 'Pure arcade. Press L in the game to open the layers panel.', coach: 'Ghost paths, targets, roles and the Commander drawn on the maze.', teacher: 'Every layer on, a legend, and live captions explaining what the ghosts are doing.' }[S.intel]) });
+    r.push({ id: 'arcade', grp: 'ADVANCED', label: 'RULES', choices: [{ v: false, l: 'ORIGINAL' }, { v: true, l: 'ARCADE' }], desc: () => (S.arcade
+      ? 'Close to the real game: real speeds, scatter and chase phases, a ghost house, fruit. Dots 10, pellets 50, ghosts 200 to 1600.'
+      : 'The course rules: one step at a time, -1 per move, +10 per dot, -500 if caught, +500 for clearing the maze.') });
+    r.push({ id: 'intel', grp: 'ADVANCED', label: 'SHOW THE THINKING', choices: [{ v: 'classic', l: 'OFF' }, { v: 'teacher', l: 'ON' }],
+      desc: () => (S.intel === 'teacher' ? 'Draws each ghost’s job, route and the Commander’s orders on the maze, with a running explanation.' : 'Just the game. Press T during a game to turn the thinking on.') });
     return r;
   };
-  let R = rows(), row = 0;
+  let R = rows(), row = 0, open = null, cur = 0;
   const list = h('ul', { class: 'opt-rows' });
   const desc = h('p', { class: 'menu-desc', 'aria-live': 'polite' });
   function fix() {
-    if (!S.arcade && S.ghosts.startsWith('Arcade')) S.ghosts = 'DirectionalGhost';
-    const dep = (meta.pacmen.find((p) => p.name === S.pacman) || {}).depth;
-    if (!dep) S.depth = 2;
+    if (!S.arcade && (meta.teams.find((t) => t.name === S.ghosts) || {}).arcadeOnly) S.ghosts = 'DirectionalGhost';
+    if (!meta.layouts.includes(S.layout)) S.layout = meta.layouts[0];
+    if (!meta.teams.some((t) => t.name === S.ghosts)) S.ghosts = 'DirectionalGhost';
+    if (!pacInfo().depth) S.depth = 2;
+  }
+  function pickList(r) {
+    const ul = h('ul', { class: 'pick', role: 'listbox', 'aria-label': r.label });
+    let lastG = null;
+    r.choices.forEach((c, n) => {
+      if (c.g && c.g !== lastG && (r.choices.some((x) => x.g !== c.g) || c.g === 'experimental')) {
+        ul.append(h('li', { class: 'pick-h', role: 'presentation' }, GROUP_NAME[c.g] || c.g.toUpperCase()));
+      }
+      lastG = c.g;
+      ul.append(h('li', { role: 'none' }, h('button', { class: 'pick-o', role: 'option', 'aria-selected': String(n === cur), 'aria-current': String(n === cur), 'data-n': String(n),
+        onclick: () => { cur = n; choose(); } }, h('span', { class: 'po-l' }, c.l), c.blurb ? h('span', { class: 'po-d' }, c.blurb) : null)));
+    });
+    return ul;
   }
   function paint() {
     fix(); R = rows();
-    list.replaceChildren(...R.map((r, n) => {
+    let lastGrp = null;
+    const nodes = [];
+    R.forEach((r, n) => {
+      if (r.grp !== lastGrp) { nodes.push(h('li', { class: 'opt-group', role: 'presentation' }, r.grp)); lastGrp = r.grp; }
       const idx = Math.max(0, r.choices.findIndex((c) => c.v === S[r.id]));
-      const cur = r.choices[idx] || r.choices[0];
-      return h('li', { class: 'opt-row', 'aria-current': String(n === row) },
-        h('span', { class: 'ol' }, r.label),
-        h('button', { class: 'arrow left', 'aria-label': 'previous ' + r.label, onclick: () => { row = n; cycle(-1); } }, ''),
-        h('span', { class: 'ov' }, cur.l),
-        h('button', { class: 'arrow right', 'aria-label': 'next ' + r.label, onclick: () => { row = n; cycle(1); } }, ''));
-    }), h('li', { class: 'opt-row start', 'aria-current': String(row === R.length) }, h('button', { class: 'start-b', 'data-autofocus': '', onclick: start }, kind === 'play' ? 'START GAME' : 'START WATCHING')));
-    const r = R[row]; desc.textContent = r ? (r.desc() || '') : 'Enter to begin.';
+      const curc = r.choices[idx] || r.choices[0];
+      const many = r.choices.length > 3;
+      nodes.push(h('li', { class: 'opt-item' },
+        h('div', { class: 'opt-row', 'aria-current': String(n === row), onclick: (e) => { if (e.target.closest('.arrow')) return; row = n; if (many) openPick(); else paint(); } },
+          h('span', { class: 'ol' }, r.label),
+          h('button', { class: 'arrow left', 'aria-label': 'previous ' + r.label, onclick: () => { row = n; open = null; cycle(-1); } }, ''),
+          h('span', { class: 'ov' }, curc.l),
+          h('button', { class: 'arrow right', 'aria-label': 'next ' + r.label, onclick: () => { row = n; open = null; cycle(1); } }, '')),
+        open === r.id ? pickList(r) : null));
+    });
+    nodes.push(h('li', { class: 'opt-row start', 'aria-current': String(row === R.length) }, h('button', { class: 'start-b', 'data-autofocus': '', onclick: start }, kind === 'play' ? 'START GAME' : 'START WATCHING')));
+    list.replaceChildren(...nodes);
+    const r = R[row];
+    const c = r && r.choices.find((x) => x.v === S[r.id]);
+    desc.textContent = r ? (open ? 'Up and Down to look, Enter to choose, Esc to close.' : ((c && c.g === 'experimental' ? 'EXPERIMENTAL. ' : '') + (r.desc() || ''))) : 'Press Enter to begin.';
+    const sel = list.querySelector('.pick-o[aria-current="true"]'); if (sel) sel.scrollIntoView({ block: 'nearest' });
   }
+  function openPick() {
+    const r = R[row]; if (!r || r.choices.length < 2) return;
+    open = r.id; cur = Math.max(0, r.choices.findIndex((c) => c.v === S[r.id])); paint();
+  }
+  function choose() { const r = R[row]; S[r.id] = r.choices[cur].v; open = null; paint(); }
   function cycle(d) {
     const r = R[row]; if (!r) return;
     const idx = Math.max(0, r.choices.findIndex((c) => c.v === S[r.id]));
@@ -123,40 +210,169 @@ export async function setup(root, ctx, kind) {
   }
   function start() {
     fix(); store.set('pac.setup.' + kind, S);
-    const q = new URLSearchParams({ kind, layout: S.layout, ghosts: S.ghosts, arcade: S.arcade ? '1' : '0', preset: S.intel });
+    const q = new URLSearchParams({ kind, layout: S.layout, ghosts: S.ghosts, arcade: S.arcade ? '1' : '0', preset: S.intel, seed: String(Math.floor(Math.random() * 9000)) });
     if (kind === 'watch') { q.set('pacman', S.pacman); q.set('depth', String(S.depth)); }
     ctx.go('#/run?' + q);
   }
   paint();
-  root.replaceChildren(h('section', { class: 'menu-screen setup' }, h('h2', { class: 'screen-t' }, kind === 'play' ? 'PLAY' : 'WATCH AI'), list, desc));
+  const title = kind === 'play' ? 'CUSTOM GAME' : 'WATCH AN AI';
+  root.replaceChildren(h('section', { class: 'menu-screen setup' },
+    h('h2', { class: 'screen-t' }, title), kind === 'watch' ? h('p', { class: 'menu-desc lead' }, 'Choose who plays Pac-Man and who plays the ghosts, then watch.') : null, list, desc));
   const off = keys((e) => {
+    if (open) {
+      const r = R[row];
+      if (e.key === 'ArrowDown' || e.key === 's') { e.preventDefault(); cur = (cur + 1) % r.choices.length; paint(); }
+      else if (e.key === 'ArrowUp' || e.key === 'w') { e.preventDefault(); cur = (cur - 1 + r.choices.length) % r.choices.length; paint(); }
+      else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(); }
+      else if (e.key === 'Escape' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); open = null; paint(); }
+      return;
+    }
     if (e.key === 'ArrowDown' || e.key === 's') { e.preventDefault(); row = Math.min(R.length, row + 1); paint(); }
     else if (e.key === 'ArrowUp' || e.key === 'w') { e.preventDefault(); row = Math.max(0, row - 1); paint(); }
     else if (e.key === 'ArrowLeft' || e.key === 'a') { e.preventDefault(); cycle(-1); }
     else if (e.key === 'ArrowRight' || e.key === 'd') { e.preventDefault(); cycle(1); }
-    else if (e.key === 'Enter') { e.preventDefault(); if (row === R.length) start(); else { row = R.length; paint(); } }
+    else if (e.key === 'Enter') { e.preventDefault(); if (row === R.length) start(); else if (R[row].choices.length > 3) openPick(); else { row = R.length; paint(); } }
   });
-  return { back: '#/menu', crumb: [kind === 'play' ? 'PLAY' : 'WATCH AI'], hints: [['UP DOWN', 'ROW'], ['LEFT RIGHT', 'CHANGE'], ['Enter', 'START'], ['Esc', 'MENU']], destroy: off };
+  const here = kind === 'play' ? '#/play' : '#/menu';
+  return { get back() { return open ? null : here; }, crumb: kind === 'play' ? [['#/play', 'PLAY'], 'CUSTOM'] : ['WATCH'],
+    hints: [['UP DOWN', 'ROW'], ['LEFT RIGHT', 'CHANGE'], ['Enter', 'LIST / START'], ['Esc', 'BACK']], destroy: off };
 }
 
 // ---- run (the game itself) -----------------------------------------------------------------------------------------
 export async function run(root, ctx) {
   const q = ctx.q, kind = q.kind === 'play' ? 'play' : 'watch';
   const opts = ctx.app.opts();
+  const meta = await ctx.app.getMeta();
   if (q.preset) ctx.app.layers = LY.stateFromPreset(['classic', 'coach', 'teacher'].includes(q.preset) ? q.preset : 'classic');
   const arcade = q.arcade === '1';
-  const params = { layout: q.layout || 'smallClassic', ghosts: q.ghosts || 'DirectionalGhost', arcade, level: 1, seed: Math.floor(Math.random() * 9000),
+  const seed = q.seed != null && /^\d{1,9}$/.test(q.seed) ? Number(q.seed) : Math.floor(Math.random() * 9000);
+  const params = { layout: q.layout || 'smallClassic', ghosts: q.ghosts || 'DirectionalGhost', arcade, level: 1, seed,
     tickRate: opts.speed, lives: kind === 'play' ? 3 : 1, pacman: kind === 'play' ? 'browser' : (q.pacman || 'GreedyAgent') };
   if (kind === 'watch' && q.depth) params.depth = Number(q.depth);
+  const badge = MD.badgeFor({ kind, layout: params.layout, ghosts: params.ghosts, arcade, pacman: params.pacman, depth: params.depth, mode: q.mode }, meta.teams);
+  const preset = ctx.app.layers.preset;
+  const other = kind === 'play' ? MD.otherSide({ kind, layout: params.layout, ghosts: params.ghosts, arcade, preset }, seed) : null;
+  const again = '#/run?' + new URLSearchParams({ ...q, seed: String(Math.floor(Math.random() * 9000)) });
+  const back = q.mode ? '#/play' : (kind === 'play' ? '#/play' : '#/watch');
+  const actions = [
+    other ? { label: 'PLAY THE OTHER SIDE', hash: other.hash, primary: true, note: other.mode.name } : null,
+    { label: kind === 'play' ? 'PLAY AGAIN' : 'WATCH AGAIN', hash: again, primary: !other },
+    { label: kind === 'play' ? 'CHOOSE A MODE' : 'BACK', hash: back },
+  ];
   const wrap = h('div', { class: 'game-wrap' });
   root.replaceChildren(wrap);
-  const g = mountGame(wrap, { kind, params, layers: ctx.app.layers, tickRate: opts.speed, onLayers: (l) => { ctx.app.layers = l; } });
-  const back = kind === 'play' ? '#/play' : '#/watch';
-  return { back, crumb: [[back, kind === 'play' ? 'PLAY' : 'WATCH AI'], 'GAME'],
+  const g = mountGame(wrap, { kind, params, layers: ctx.app.layers, tickRate: opts.speed, badge, actions, onAction: (a) => ctx.go(a.hash), onLayers: (l) => { ctx.app.layers = l; } });
+  return { back, crumb: [[back, kind === 'play' ? 'PLAY' : 'WATCH'], badge.name],
     hints: kind === 'play'
-      ? [['ARROWS', 'STEER'], ['Space', 'PAUSE'], ['L', 'LAYERS'], ['1-0 H C', 'TOGGLE'], ['Esc', 'QUIT']]
-      : [['Space', 'PAUSE'], ['L', 'LAYERS'], ['1-0 H C', 'TOGGLE'], ['Esc', 'QUIT']],
+      ? [['ARROWS', 'STEER'], ['Space', 'PAUSE'], ['T', 'THINKING'], ['L', 'PANEL'], ['Esc', 'QUIT']]
+      : [['Space', 'PAUSE'], ['T', 'THINKING'], ['L', 'PANEL'], ['Esc', 'QUIT']],
     destroy: () => g.destroy() };
+}
+
+// ---- versus: the same Pac-Man and seed against the original ghosts and ours --------------------------------------
+const VS_MAZES = ['originalClassic', 'mediumClassic', 'smallClassic'];
+export async function versus(root, ctx) {
+  let layout = VS_MAZES.includes(ctx.q.layout) ? ctx.q.layout : 'originalClassic';
+  let seed = /^\d{1,6}$/.test(ctx.q.seed || '') ? Number(ctx.q.seed) : 7;
+  const V = { data: null, pos: 0, acc: 0, timer: 0, poll: 0, ended: [false, false], paused: false, gen: 0, views: [] };
+  const sides = ['stock', 'ours'].map((id, n) => {
+    const count = h('p', { class: 'vs-count', 'aria-live': 'off' }, 'MOVES 0');
+    const end = h('p', { class: 'vs-end', role: 'status' });
+    const canvas = h('canvas', { 'aria-hidden': 'true' });
+    const board = h('div', { class: 'board', 'aria-label': n ? 'Maze with our ghosts' : 'Maze with the original ghosts' }, canvas);
+    const el = h('article', { class: 'vs-side', 'data-side': id }, h('h3', {}, n ? 'OUR GHOSTS' : 'ORIGINAL GHOSTS'), count, board, end);
+    return { id, count, end, canvas, board, el };
+  });
+  const info = h('p', { class: 'vs-info' });
+  const verdict = h('p', { class: 'vs-verdict', role: 'status', 'aria-live': 'polite' });
+  const btn = (label, key, fn, primary) => h('button', { class: 'btn' + (primary ? ' solid' : ''), onclick: fn }, label, ' ', h('kbd', {}, key));
+  const bar = h('div', { class: 'vs-actions' }, btn('WATCH AGAIN', 'R', () => replay()), btn('NEW SEED', 'N', () => rerun(Math.floor(Math.random() * 900) + 1)), btn('CHANGE MAZE', 'M', () => { layout = VS_MAZES[(VS_MAZES.indexOf(layout) + 1) % VS_MAZES.length]; rerun(seed); }));
+  root.replaceChildren(h('section', { class: 'versus' }, h('h2', { class: 'screen-t' }, 'VERSUS'),
+    h('p', { class: 'vs-lead' }, 'The same Pac-Man, the same maze, the same dice. Only the ghosts are different.'),
+    verdict, h('div', { class: 'vs-grid' }, sides[0].el, sides[1].el), info, bar));
+
+  const stop = () => { clearInterval(V.timer); clearTimeout(V.poll); V.timer = 0; };
+  const clearViews = () => { V.views.forEach((v) => v.destroy()); V.views = []; };
+  async function rerun(newSeed) {
+    stop(); clearViews(); V.data = null; seed = newSeed; const gen = ++V.gen;
+    verdict.textContent = 'Running both games...'; verdict.classList.remove('done');
+    info.textContent = `${MD.niceMaze(layout)} maze, seed ${seed}. The same seed always gives the same two games.`;
+    sides.forEach((s) => { s.count.textContent = 'MOVES 0'; s.end.textContent = ''; s.el.classList.remove('win'); });
+    history.replaceState(null, '', `#/versus?layout=${layout}&seed=${seed}`);
+    try {
+      await api('/api/versus/start', { layout, seed });
+      const wait = async () => {
+        const st = await api('/api/versus');
+        if (gen !== V.gen) return;
+        if (st.state === 'error') { verdict.textContent = 'Could not run: ' + st.error; return; }
+        if (st.state !== 'done') { verdict.textContent = `Running both games... ${st.doneSides} of ${st.sides} done`; V.poll = setTimeout(wait, 300); return; }
+        const data = await api('/api/versus/result');
+        if (gen !== V.gen) return;
+        V.data = data; begin();
+      };
+      await wait();
+    } catch (e) { if (gen === V.gen) verdict.textContent = 'Could not run: ' + (e.message || e); }
+  }
+  function begin() {
+    clearViews();
+    const smooth = store.get('pac.opts', {}).smooth !== false;
+    V.data.sides.forEach((sd, n) => {
+      const view = new ArcadeView(sides[n].canvas, { layers: {}, reduceMotion: reduceMotion(), smooth });
+      sides[n].board.style.setProperty('--ar', `${sd.header.width} / ${sd.header.height}`);
+      view.setHeader(sd.header); view.start(); V.views.push(view);
+    });
+    replay();
+  }
+  function replay() {
+    if (!V.data) return;
+    stop(); V.pos = 0; V.ended = [false, false]; V.paused = false;
+    verdict.textContent = ''; verdict.classList.remove('done');
+    sides.forEach((s) => { s.end.textContent = ''; s.el.classList.remove('win'); s.count.textContent = 'MOVES 0'; });
+    V.views.forEach((v) => { v.prev = null; v.setPhase('playing'); });
+    V.acc = performance.now();
+    V.timer = setInterval(step, 16);
+  }
+  function endLine(sd) {
+    if (sd.caughtAt != null) return `CAUGHT PAC-MAN AFTER ${sd.caughtAt} MOVES`;
+    if (sd.cleared) return `PAC-MAN CLEARED THE MAZE IN ${sd.ticks} MOVES`;
+    return `PAC-MAN STILL FREE AFTER ${sd.ticks} MOVES`;
+  }
+  function step() {
+    const now = performance.now();
+    if (V.paused) { V.acc = now; return; }
+    const rate = Math.round(V.data.sides[0].header.tickRate || 15), dt = 1000 / rate;
+    let n = 0;
+    while (V.acc <= now && n++ < 8) {
+      V.data.sides.forEach((sd, i) => {
+        if (V.ended[i]) return;
+        const f = sd.frames[V.pos];
+        if (f) { V.views[i].push(f); sides[i].count.textContent = `MOVES ${V.pos}   SCORE ${f.score}`; }
+        if (V.pos >= sd.frames.length - 1) {
+          V.ended[i] = true; sides[i].end.textContent = endLine(sd);
+          if (sd.caughtAt != null) V.views[i].setPhase('dying');
+        }
+      });
+      V.pos++; V.acc += dt;
+      if (V.ended[0] && V.ended[1]) { finish(); break; }
+    }
+  }
+  function finish() {
+    stop();
+    const [a, b] = V.data.sides;
+    if (a.caughtAt != null && b.caughtAt != null && a.caughtAt !== b.caughtAt) sides[a.caughtAt < b.caughtAt ? 0 : 1].el.classList.add('win');
+    else if ((a.caughtAt != null) !== (b.caughtAt != null)) sides[a.caughtAt != null ? 0 : 1].el.classList.add('win');
+    verdict.textContent = V.data.verdict; verdict.classList.add('done');
+  }
+  rerun(seed);
+  const off = keys((e) => {
+    const k = e.key.toLowerCase();
+    if (k === 'r') replay();
+    else if (k === 'n') rerun(Math.floor(Math.random() * 900) + 1);
+    else if (k === 'm') { layout = VS_MAZES[(VS_MAZES.indexOf(layout) + 1) % VS_MAZES.length]; rerun(seed); }
+    else if (k === ' ') { e.preventDefault(); V.paused = !V.paused; }
+  });
+  return { back: '#/play', crumb: [['#/play', 'PLAY'], 'VERSUS'], hints: [['R', 'WATCH AGAIN'], ['N', 'NEW SEED'], ['M', 'CHANGE MAZE'], ['Space', 'PAUSE'], ['Esc', 'BACK']],
+    destroy: () => { off(); stop(); V.gen++; clearViews(); fetch('/api/versus/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', keepalive: true }).catch(() => {}); } };
 }
 
 // ---- level select + level pages --------------------------------------------------------------------------------
@@ -317,14 +533,14 @@ export async function options(root, ctx) {
     { id: 'speed', label: 'GAME SPEED', ch: [[10, 'SLOW'], [15, 'ARCADE'], [20, 'FAST'], [30, 'TURBO']], note: 'Rounds per second. 15 is close to the real arcade pace.' },
     { id: 'smooth', label: 'SMOOTH MOTION', ch: [[true, 'ON'], [false, 'OFF']], note: 'Slides characters between ticks. Always off when the system asks for reduced motion.' },
     { id: 'scan', label: 'SCANLINES', ch: [[true, 'ON'], [false, 'OFF']], note: 'A faint CRT line pattern. Static: it never flickers.' },
-    { id: 'intel', label: 'DEFAULT INTEL', ch: [['classic', 'OFF'], ['coach', 'COACH'], ['teacher', 'TEACHER']], note: 'Layer preset used when a game starts without one.' },
+    { id: 'intel', label: 'SHOW THE THINKING', ch: [['classic', 'OFF'], ['teacher', 'ON']], note: 'Draws what the ghosts are planning on the maze. You can also press T during a game.' },
   ];
   let row = 0;
   const ul = h('ul', { class: 'opt-rows' }), desc = h('p', { class: 'menu-desc' });
   const paint = () => {
     const cur = ctx.app.opts();
     ul.replaceChildren(...defs.map((d, n) => {
-      const i = Math.max(0, d.ch.findIndex((c) => c[0] === cur[d.id]));
+      const i = Math.max(0, d.ch.findIndex((c) => c[0] === (d.id === 'intel' && cur.intel === 'coach' ? 'teacher' : cur[d.id])));
       return h('li', { class: 'opt-row', 'aria-current': String(n === row) }, h('span', { class: 'ol' }, d.label),
         h('button', { class: 'arrow left', 'aria-label': 'previous', onclick: () => { row = n; cyc(-1); } }, ''), h('span', { class: 'ov' }, d.ch[i][1]),
         h('button', { class: 'arrow right', 'aria-label': 'next', onclick: () => { row = n; cyc(1); } }, ''));
@@ -350,13 +566,13 @@ export async function options(root, ctx) {
 
 export async function about(root, ctx) {
   root.replaceChildren(h('section', { class: 'menu-screen wide about' }, h('h2', { class: 'screen-t' }, 'ABOUT'),
-    h('p', {}, 'This is a Pac-Man engine you can read. It started as the Berkeley CS188 search and multi-agent projects, then grew a team of cooperating ghosts, a recorder, a benchmark harness and an arcade rule set.'),
-    h('p', {}, 'The maze on screen is the real game. The extra drawings (the INTEL layers) show what the ghost coordinator decided, taken from the game\'s own state.'),
+    h('p', {}, 'This is a Pac-Man game you can read. It started as the original Berkeley CS188 game, then grew a team of ghosts that work together, a way to record and replay games, a score table and an arcade rule set.'),
+    h('p', {}, 'The maze on screen is the real game. The extra drawings (SHOW THE THINKING) show what the ghost team decided, taken from the game\'s own state.'),
     h('h3', {}, 'CONTROLS'),
     h('dl', { class: 'how-rows' }, h('dt', {}, 'Arrows / WASD'), h('dd', {}, 'steer Pac-Man, or move in menus'), h('dt', {}, 'Enter / Esc'), h('dd', {}, 'select / go back'), h('dt', {}, 'Space'), h('dd', {}, 'pause'),
-      h('dt', {}, 'L'), h('dd', {}, 'open or close the layers panel'), h('dt', {}, '1 to 0, H, C'), h('dd', {}, 'toggle one layer (C = Commander)')),
+      h('dt', {}, 'T'), h('dd', {}, 'turn SHOW THE THINKING on or off'), h('dt', {}, 'L'), h('dd', {}, 'open or close the side panel'), h('dt', {}, '1 to 0, H, C'), h('dd', {}, 'toggle one layer (C = Commander)')),
     h('h3', {}, 'CREDITS'),
-    h('p', {}, 'Berkeley CS188 Pac-Man framework (UC Berkeley, educational use). Arcade rules follow the Pac-Man Dossier. Fonts: Press Start 2P and Space Mono, SIL Open Font License 1.1, bundled; nothing loads from the network.'),
+    h('p', {}, 'Framework credit: UC Berkeley, educational use. Arcade rules follow the Pac-Man Dossier. Fonts: Press Start 2P and Space Mono, SIL Open Font License 1.1, bundled; nothing loads from the network.'),
     h('p', { class: 'cap' }, 'Everything runs on 127.0.0.1. Files: dashboard/README.md, docs/ARCHITECTURE.md, docs/ARCADE_MODE.md, dashboard/DESIGN.md.')));
   return { back: '#/menu', crumb: ['ABOUT'], hints: [['Esc', 'MENU']] };
 }

@@ -3,6 +3,7 @@
 import { h, api, store, pad, fmtScore, reduceMotion } from './util.js';
 import { ArcadeView } from './render.js';
 import * as LY from './layers.js';
+import * as MD from './modes.js';
 
 const MAX_TICKER = 14;
 const FRUIT_KINDS = ['cherry', 'strawberry', 'orange', 'apple', 'melon', 'galaxian', 'bell', 'key'];
@@ -43,8 +44,9 @@ export function mountGame(root, opts) {
     h('div', { class: 'hud-cell' }, h('span', { class: 'hud-lab blink' }, '1UP'), el.score),
     h('div', { class: 'hud-cell hud-mid' }, h('span', { class: 'hud-lab' }, 'HIGH SCORE'), el.hi));
   el.canvas = h('canvas', { 'aria-hidden': 'true' });
+  el.actions = h('div', { class: 'after', role: 'group', 'aria-label': 'What next', hidden: true });
   el.splash = h('div', { class: 'splash', role: 'status', 'aria-live': 'polite' });
-  el.board = h('div', { class: 'board', tabindex: '0', 'aria-label': kind === 'play' ? 'Maze. Arrow keys or W A S D steer Pac-Man. Space pauses.' : 'Maze' }, el.canvas, el.splash);
+  el.board = h('div', { class: 'board', tabindex: '0', 'aria-label': kind === 'play' ? 'Maze. Arrow keys or W A S D steer Pac-Man. Space pauses.' : 'Maze' }, el.canvas, el.splash, el.actions);
   el.lives = h('div', { class: 'lives', 'aria-label': 'Lives' });
   el.fruit = h('div', { class: 'fruit-row', 'aria-hidden': 'true' });
   el.lvl = h('span', { class: 'hud-lvl' }, '');
@@ -53,7 +55,8 @@ export function mountGame(root, opts) {
   el.dpad = h('div', { class: 'dpad', 'aria-label': 'Touch controls' },
     ...[['North', '↑'], ['West', '←'], ['South', '↓'], ['East', '→']].map(([d, s]) =>
       h('button', { class: 'btn', 'aria-label': d, onclick: () => steer(d) }, s)));
-  el.cab = h('div', { class: 'cab' }, attract ? null : el.hud, el.board, attract ? null : el.foot,
+  el.badge = opts.badge ? h('p', { class: 'mode-badge', 'aria-label': 'Game mode' }, h('b', { class: 'mb-name' }, opts.badge.name), h('span', { class: 'mb-line' }, opts.badge.line)) : null;
+  el.cab = h('div', { class: 'cab' }, attract ? null : el.badge, attract ? null : el.hud, el.board, attract ? null : el.foot,
     attract ? null : el.tactical, kind === 'play' ? el.dpad : null);
 
   // intel panel
@@ -61,8 +64,13 @@ export function mountGame(root, opts) {
   el.layerList = h('ul', { class: 'layer-list' });
   el.caption = h('p', { class: 'caption', 'aria-live': 'off' });
   el.legend = h('dl', { class: 'legend' }, ...LY.LEGEND.flatMap(([a, b]) => [h('dt', {}, a), h('dd', {}, b)]));
-  el.teacher = h('section', { class: 'teacher' }, h('p', { class: 'eyebrow' }, 'TEACHER'), el.caption,
+  el.teacher = h('section', { class: 'teacher' }, h('p', { class: 'eyebrow' }, 'WHAT YOU ARE SEEING'), el.caption,
     h('details', { open: true }, h('summary', {}, 'Legend'), el.legend));
+  el.think = h('button', { class: 'btn think-sw', 'aria-pressed': 'false', onclick: () => { const on = !MD.thinkingOn(layers.preset); setLayers(LY.stateFromPreset(MD.presetForThinking(on))); if (on) setPanel(true); } });
+  el.thinkNote = h('p', { class: 'cap think-note' });
+  el.adv = h('details', { class: 'adv-layers' }, h('summary', {}, 'ADVANCED LAYERS'),
+    h('p', { class: 'cap' }, 'Pick single layers (keys 1 to 0, H, C) or a ready-made set: CLASSIC shows nothing, COACH shows the basics, TEACHER shows everything.'),
+    el.presets, el.layerList);
   el.cmdLane = h('ol', { class: 'ticker', role: 'log', 'aria-label': 'Commander orders' });
   el.chatLane = h('ol', { class: 'ticker chat', role: 'log', 'aria-label': 'Ghost chatter' });
   el.cmdSec = h('section', {}, h('p', { class: 'eyebrow split' }, h('span', {}, 'Commander'), h('span', { id: 'cmdSrc' }, 'no coordinator')), el.cmdLane);
@@ -71,10 +79,10 @@ export function mountGame(root, opts) {
   el.ai = h('section', { class: 'ai', hidden: true });
   el.meta = h('p', { class: 'run-meta' });
   el.panelBody = h('div', { class: 'intel-body' },
-    h('p', { class: 'eyebrow' }, 'Layers'), el.presets, el.layerList, el.teacher, el.ai, el.cmdSec, el.chatSec,
+    el.think, el.thinkNote, el.teacher, el.adv, el.ai, el.cmdSec, el.chatSec,
     h('section', {}, h('p', { class: 'eyebrow split' }, h('span', {}, 'Ghosts'), h('span', {}, 'mode')), el.roster), el.meta);
   el.panel = h('aside', { class: 'intel', 'aria-label': 'Intel overlay controls and tickers' },
-    h('div', { class: 'intel-head' }, h('span', {}, 'INTEL'), h('kbd', {}, 'L')), el.panelBody);
+    h('div', { class: 'intel-head' }, h('span', {}, 'THE THINKING'), h('kbd', {}, 'L')), el.panelBody);
   const panelOpen0 = store.get('pac.panel', !attract && layers.preset !== 'classic');
   root.replaceChildren(h('div', { class: 'game' + (attract ? ' attract' : '') + (panelOpen0 && !attract ? '' : ' no-panel'), 'data-kind': kind },
     el.cab, attract ? null : el.panel));
@@ -90,6 +98,10 @@ export function mountGame(root, opts) {
     el.layerList.replaceChildren(...LY.LAYERS.map((l) => h('li', {},
       h('label', { title: l.note }, h('input', { type: 'checkbox', checked: layers.on[l.id], onchange: () => setLayers(LY.toggle(layers, l.id)) }),
         h('span', { class: 'lname' }, l.label), h('kbd', {}, l.key.toUpperCase())))));
+    const on = MD.thinkingOn(layers.preset);
+    el.think.textContent = 'SHOW THE THINKING: ' + (on ? 'ON' : 'OFF');
+    el.think.setAttribute('aria-pressed', String(on));
+    el.thinkNote.textContent = on ? 'Ghost jobs, routes and orders are drawn on the maze. Press T to turn it off.' : 'Press T to see what the ghosts are planning, drawn on the maze.';
     el.teacher.hidden = layers.preset !== 'teacher';
     el.cmdSec.hidden = !layers.on.commander;
     el.chatSec.hidden = !layers.on.chatter;
@@ -188,6 +200,16 @@ export function mountGame(root, opts) {
     if (r.error) return splash('ERROR', 'red', r.error);
     S.over = true;
     finishScore(r.score);
+    if (!S.entering) showActions();
+  }
+  /** Game over: the next steps as real buttons (arrow keys move between them, Enter picks). */
+  function showActions() {
+    const list = (opts.actions || []).filter(Boolean);
+    if (!list.length || attract) return;
+    el.actions.replaceChildren(...list.map((a, i) => h('button', { class: 'btn' + (a.primary ? ' solid' : ''), 'data-act': String(i), onclick: () => opts.onAction && opts.onAction(a) }, a.label)));
+    el.actions.hidden = false;
+    const first = el.actions.querySelector('.solid') || el.actions.firstChild;
+    if (first) first.focus({ preventScroll: true });
   }
 
   function setPhase(p) {
@@ -316,10 +338,11 @@ export function mountGame(root, opts) {
   }
   function saveInitials() {
     const e = S.entering; if (!e || e.letters.length < 3) return;
-    const row = { name: e.letters.join(''), score: e.score, layout: P.layout, ghosts: P.ghosts, rules: P.arcade ? 'ARCADE' : 'BERKELEY' };
+    const row = { name: e.letters.join(''), score: e.score, layout: P.layout, ghosts: P.ghosts, rules: P.arcade ? 'ARCADE' : 'ORIGINAL', mode: opts.badge ? opts.badge.name : '' };
     const t = [...e.table, row].sort((a, b) => b.score - a.score).slice(0, 8);
     store.set('pac.scores', t); S.entering = null;
-    splash('GAME OVER', 'red', 'SCORE SAVED. ESC FOR MENU');
+    splash('GAME OVER', 'red', 'SCORE SAVED');
+    showActions();
   }
 
   // ---- input ------------------------------------------------------------------------------------------------
@@ -343,6 +366,12 @@ export function mountGame(root, opts) {
       e.preventDefault(); e.stopPropagation(); drawInitials(); return;
     }
     const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    if (S.over && !el.actions.hidden) {
+      const btns = [...el.actions.querySelectorAll('button')], at = btns.indexOf(document.activeElement);
+      if (k === 'ArrowRight' || k === 'ArrowDown' || k === 'd' || k === 's') { e.preventDefault(); btns[(at + 1) % btns.length].focus(); return; }
+      if (k === 'ArrowLeft' || k === 'ArrowUp' || k === 'a' || k === 'w') { e.preventDefault(); btns[(at - 1 + btns.length) % btns.length].focus(); return; }
+      if (k === 'Enter' && at < 0) { e.preventDefault(); btns[0].click(); return; }
+    }
     if (kind === 'play' && DIRS[k]) { e.preventDefault(); steer(DIRS[k]); return; }
     if (k === 'l') { setPanel(gameEl.classList.contains('no-panel')); return; }
     if (k === ' ' || k === 'p') { if (tag !== 'button') { e.preventDefault(); togglePause(); } return; }
@@ -353,6 +382,7 @@ export function mountGame(root, opts) {
       if (k === '+' || k === '=') { S.speed = Math.min(S.speed * 2, 8); return; }
       if (k === '-') { S.speed = Math.max(S.speed / 2, 0.25); return; }
     }
+    if (k === 't') { el.think.click(); return; }
     const id = LY.hotkey(k);
     if (id) { setLayers(LY.toggle(layers, id)); }
   }

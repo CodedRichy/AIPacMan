@@ -54,8 +54,10 @@ async function route() {
   try {
     switch (parts[0]) {
       case 'menu': s = await scr.menu(root, ctx); break;
-      case 'play': s = await scr.setup(root, ctx, 'play'); break;
+      case 'play': s = parts[1] === 'custom' ? await scr.setup(root, ctx, 'play') : await scr.modePicker(root, ctx); break;
       case 'watch': s = await scr.setup(root, ctx, 'watch'); break;
+      case 'versus': s = await scr.versus(root, ctx); break;
+      case 'more': s = await scr.more(root, ctx); break;
       case 'run': s = await scr.run(root, ctx); break;
       case 'levels': s = parts[1] ? await scr.level(root, ctx, Number(parts[1])) : await scr.levels(root, ctx); break;
       case 'scores': s = await scr.scores(root, ctx); break;

@@ -5,6 +5,7 @@
     GET  /api/facts               per-level real numbers: PENDING_TASKS.md, autograder cache, benchmarks, traces
     GET  /api/highscores          ghost-team table built from the newest benchmarks/results/*.json
     GET  /api/searchviz?algo=&maze=   expansion order + path from the real search.py (subprocess)
+    GET  /api/versus, /api/versus/result   POST /api/versus/start {layout, seed, maxTicks}, /api/versus/stop
     GET  /api/benchmark/status    POST /api/benchmark/run {games, layout}   (max 2 worker processes)
     GET  /api/compare             POST /api/compare/run     Minimax / AlphaBeta / Expectimax stat view
                                   (max 2 worker processes, cached in dashboard/cache/compare.json)
@@ -33,12 +34,26 @@ TRACES = os.path.join(HERE, 'traces')
 MAX_WORKERS = 2                  # this machine has had out-of-memory kills: never more than 2 child games at once
 
 PLAY_LAYOUTS = ['originalClassic', 'mediumClassic', 'smallClassic']
-TEAM_FILES = [  # (class, module file, label, blurb)
-    ('DirectionalGhost', 'ghostAgents.py', 'Berkeley: chase', 'The course default. Each ghost heads for Pac-Man on its own.'),
-    ('CoordinatedGhostTeam', 'coordinatedGhostAgents.py', 'Coordinated', 'Four roles: chaser, interceptor, blocker, sweeper.'),
-    ('EnhancedCoordinatedGhostTeam', 'enhancedGhostAgents.py', 'Enhanced', 'Adds a tactical state machine, scared-ghost scatter and tile reservation.'),
-    ('ArcadeGhostTeam', 'arcadeGhostAgents.py', 'Arcade', 'Blinky, Pinky, Inky and Clyde with their own targeting. Needs arcade rules.'),
+# (class, module file, plain label, one-line description, group).  'main' teams show first; 'experimental' ones
+# sit under their own heading at the bottom of the ghost list.
+TEAM_FILES = [
+    ('DirectionalGhost', 'ghostAgents.py', 'Original', 'The original Berkeley ghosts: each one heads for Pac-Man on its own.', 'main'),
+    ('EnhancedCoordinatedGhostTeam', 'enhancedGhostAgents.py', 'Our team', 'Our coordinated team: roles, a plan for the whole team and tricks like cutting Pac-Man off.', 'main'),
+    ('CoordinatedGhostTeam', 'coordinatedGhostAgents.py', 'Our team (basic)', 'The first version of our team: chaser, interceptor, blocker and sweeper.', 'main'),
+    ('ArcadeGhostTeam', 'arcadeGhostAgents.py', 'Arcade four', 'Blinky, Pinky, Inky and Clyde like the real game. Needs the arcade rules.', 'main'),
+    ('ChatterGhostTeam', 'chatterGhostAgents.py', 'Chatter (fog)', 'Experimental: ghosts cannot always see Pac-Man, so they tell each other where he is.', 'experimental'),
+    ('SilentFogGhostTeam', 'chatterGhostAgents.py', 'Silent fog', 'Experimental: the same fog, but the ghosts may not talk. The control for the chatter test.', 'experimental'),
+    ('LossyChatterGhostTeam', 'chatterGhostAgents.py', 'Lossy chatter', 'Experimental: fog and chatter, but half of the messages get lost.', 'experimental'),
 ]
+VORONOI_BLURBS = {
+    'MazeDistanceChaseTeam': ('Shortest-path chase', 'Experimental: every ghost walks the shortest maze route to Pac-Man.'),
+    'VoronoiGhostTeam': ('Territory', 'Experimental: ghosts split the maze into territories and block the exits.'),
+    'VoronoiExpectimaxGhostTeam': ('Territory + look-ahead', 'Experimental: territory control plus a short look-ahead when Pac-Man is close.'),
+    'VoronoiExpectimaxGreedyTeam': ('Territory + look-ahead (greedy guess)', 'Experimental: look-ahead that assumes Pac-Man grabs the nearest food.'),
+    'VoronoiExpectimaxPessimisticTeam': ('Territory + look-ahead (worst case)', 'Experimental: look-ahead that assumes Pac-Man plays his best move.'),
+    'VoronoiChaserTeam': ('Territory + chaser', 'Experimental: territory control with one dedicated chaser.'),
+    'VoronoiLooseTeam': ('Territory (loose ties)', 'Experimental: territory control where a tie in distance counts as a catch.'),
+}
 PACMAN_AGENTS = [  # (class, takes depth, blurb)
     ('GreedyAgent', False, 'Steps to the neighbour that scores best right now.'),
     ('ReflexAgent', False, 'Scores each move by food, ghosts and capsules, then picks the best.'),
@@ -63,14 +78,15 @@ def _read_json(path, default=None):
 def meta():
     layouts = sorted(os.path.splitext(n)[0] for n in os.listdir(os.path.join(GAME, 'layouts')) if n.endswith('.lay'))
     ordered = [l for l in PLAY_LAYOUTS if l in layouts] + [l for l in layouts if l.startswith('demo_')]
-    teams = [dict(name=c, label=l, blurb=b, arcadeOnly=c.startswith('Arcade'))
-             for c, f, l, b in TEAM_FILES if os.path.isfile(os.path.join(GAME, f))]
+    teams = [dict(name=c, label=l, blurb=b, group=g, arcadeOnly=c.startswith('Arcade'))
+             for c, f, l, b, g in TEAM_FILES if os.path.isfile(os.path.join(GAME, f))]
     # Voronoi teams are optional: listed only if the module exists on this branch.
     vor = os.path.join(GAME, 'voronoiGhostAgents.py')
     if os.path.isfile(vor):
         with open(vor, 'r', encoding='utf-8') as f:
             for cls in re.findall(r'^class (\w+(?:Team|Ghost))\b', f.read(), re.M):
-                teams.append(dict(name=cls, label='Voronoi', blurb='Territory-based hunting.', arcadeOnly=False))
+                label, blurb = VORONOI_BLURBS.get(cls, ('Territory', 'Experimental: territory-based hunting.'))
+                teams.append(dict(name=cls, label=label, blurb=blurb, group='experimental', arcadeOnly=False))
     return dict(layouts=ordered, allLayouts=layouts, teams=teams,
                 pacmen=[dict(name=n, depth=d, blurb=b) for n, d, b in PACMAN_AGENTS],
                 mazes=['tinyMaze', 'mediumMaze', 'bigMaze'], voronoi=os.path.isfile(vor))
@@ -403,6 +419,21 @@ def handle_get(h, u):
             h._err(500, str(e))
     elif p == '/api/benchmark/status':
         h._json(Bench.status())
+    elif p == '/api/versus':
+        import versus
+        h._json(versus.VERSUS.status())
+    elif p == '/api/versus/result':
+        import versus
+        if versus.VERSUS.payload is None:
+            h._err(409, 'no finished VERSUS run')
+        else:
+            body = versus.VERSUS.payload.encode('utf-8')
+            h.send_response(200)
+            h.send_header('Content-Type', 'application/json; charset=utf-8')
+            h.send_header('Content-Length', str(len(body)))
+            h.send_header('Cache-Control', 'no-store')
+            h.end_headers()
+            h.wfile.write(body)
     elif p == '/api/compare':
         h._json(dict(running=Compare.running, progress=Compare.progress,
                      result=_read_json(os.path.join(CACHE, 'compare.json'))))
@@ -429,6 +460,18 @@ def handle_post(h, path, body):
             h._err(400, str(e))
         else:
             h._json(Bench.status())
+        return True
+    if path == '/api/versus/start':
+        import versus
+        try:
+            h._json(dict(ok=True, params=versus.VERSUS.start(body)))
+        except (ValueError, TypeError) as e:
+            h._err(400, str(e))
+        return True
+    if path == '/api/versus/stop':
+        import versus
+        versus.VERSUS.stop()
+        h._json(dict(ok=True))
         return True
     if path == '/api/compare/run':
         try:

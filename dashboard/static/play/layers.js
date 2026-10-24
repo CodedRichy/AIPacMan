@@ -3,7 +3,7 @@
 // telemetry.messages); nothing here is scripted narration.
 
 export const LAYERS = [
-  { id: 'paths',     key: '1', label: 'Planned paths',      note: 'Dotted route from each ghost to its target. A BFS route computed by the recorder, not the ghost’s own route.' },
+  { id: 'paths',     key: '1', label: 'Planned paths',      note: 'Dotted line from each ghost to the tile it is heading for. It shows the shortest route, which is not always the ghost’s own plan.' },
   { id: 'targets',   key: '2', label: 'Ghost targets',      note: 'Reticle on the tile each ghost is heading for.' },
   { id: 'roles',     key: '3', label: 'Roles + colours',    note: 'Letter badge: C chaser, I interceptor, B blocker, S sweeper, G capsule guard.' },
   { id: 'predicted', key: '4', label: 'Predicted Pac-Man',  note: 'Dashed Pac-Man outline where the interceptor expects him.' },
@@ -89,7 +89,7 @@ export function describeGhost(g) {
   if (!g || !g.role) return null;
   const what = ROLE_TEXT[g.role] || 'follows its coordinator target';
   const moves = g.path && g.path.length > 1 ? g.path.length - 1 : null;
-  const tgt = g.target ? `, target ${tileStr(g.target)}${moves != null ? ` (${moves} moves away on the BFS route)` : ''}` : '';
+  const tgt = g.target ? `, target ${tileStr(g.target)}${moves != null ? ` (${moves} moves away by the shortest route)` : ''}` : '';
   return `Ghost ${g.index} is the ${roleName(g.role)}: it ${what}${tgt}.`;
 }
 
@@ -154,7 +154,7 @@ export function captions(frame, prev) {
 }
 
 export const LEGEND = [
-  ['Dotted line', 'Route a ghost would walk to its target (BFS, computed by the recorder, not the ghost’s own path).'],
+  ['Dotted line', 'The shortest route from a ghost to the tile it is heading for. This is an estimate, not the ghost’s own plan.'],
   ['Reticle', 'The tile a ghost is aiming for.'],
   ['Letter badge', 'The ghost’s role: C chaser, I interceptor, B blocker, S sweeper, G capsule guard.'],
   ['Dashed Pac-Man', 'Where the interceptor expects Pac-Man to be.'],
