@@ -17,8 +17,8 @@ marquee, glass, control deck.
 | glass (`#stage`) | one screen at a time; scrolls inside the bezel, never the page |
 | control deck (footer) | persistent breadcrumb (`MENU > LEVEL SELECT > LEVEL 2`) and key hints for the current screen |
 
-Routes are hashes: `#/title #/menu #/play #/watch #/run?... #/levels #/levels/N #/scores #/replays #/replays/<trace>
-#/options #/about`. Every game URL is deep-linkable (`#/run?kind=watch&layout=...&preset=teacher`), which is how the level
+Routes are hashes: `#/title #/menu #/play #/play/custom #/watch #/versus #/run?... #/levels #/levels/N #/scores #/more
+#/replays #/replays/<trace> #/options #/about`. Every game URL is deep-linkable (`#/run?kind=watch&layout=...&preset=teacher`), which is how the level
 pages launch their demos. Keyboard first: arrows/WASD, Enter, Esc everywhere; every control is also a real button for
 mouse and touch; the game screen has a D-pad on coarse pointers.
 
@@ -74,6 +74,55 @@ really changed between two frames.
 
 Chatter is drawn as a curved **solid** green arrow with a type chip, the Commander as **dashed** yellow lines from the
 centre, so the two never read alike. Chatter and Commander have separate ticker lanes.
+
+## Phase 12: fewer choices, same capability
+
+The owner's complaint was "so many modes, it's hard to understand the difference in the options". Nothing was deleted;
+the choices were regrouped and renamed. The look, fonts, title, attract mode, level select, search visualiser, high scores
+and replays are unchanged.
+
+- **Main menu (5):** PLAY, WATCH, LEARN (level select), SCORES, MORE (replays, options, about: the only sub-menu).
+- **PLAY = mode picker** (`static/play/modes.js` is the single source of truth, tested by `tests/modes_test.mjs`). A mode is a
+  saved set of the same parameters CUSTOM edits: CLASSIC (original ghosts and rules, originalClassic), OUR GHOSTS
+  (EnhancedCoordinatedGhostTeam, original rules), ARCADE (ArcadeGhostTeam, arcade rules), SEE HOW THEY THINK (AlphaBeta depth 2
+  vs our ghosts on mediumClassic, thinking on), VERSUS. OUR GHOSTS is highlighted on first run.
+- **SHOW THE THINKING: OFF / ON** is one switch (key `T`; also in the picker, CUSTOM, Options and the side panel). ON is the
+  TEACHER layer preset. The presets and the eleven toggles live under **ADVANCED LAYERS** in the `L` panel (collapsed); all layer
+  hotkeys still work, and old `preset=coach|teacher|classic` links still work.
+- **CUSTOM** (`#/play/custom`, and WATCH `#/watch`): rows grouped BASIC (maze, ghost team) and ADVANCED (Pac-Man agent and
+  look-ahead for WATCH, rules, thinking). Maze, team and agent open an inline list on Enter; experimental ghost teams sit under an
+  EXPERIMENTAL heading at the bottom, each with a one-line description.
+- **Mode badge** at the top of every game: name plus one line (`OUR GHOSTS  coordinated team, original rules`). A game started
+  from a level demo or CUSTOM that matches no mode says CUSTOM and describes itself. Game over offers PLAY THE OTHER SIDE
+  (CLASSIC <-> OUR GHOSTS, same maze and seed), PLAY AGAIN, CHOOSE A MODE.
+- **VERSUS** (`dashboard/versus.py`): GreedyAgent, one maze, one seed (default originalClassic, seed 7), once against the
+  original ghosts and once against ours. Both are real engine runs (`live.build_game` + `FrameDisplay`), run one after the other
+  because the engine seeds the process-wide RNG and keeps rule state in module globals, so concurrent games would not be
+  deterministic. The browser plays the two recordings side by side with live move counters; the verdict line is computed from the
+  two finished runs (`versus.verdict`). One worker thread, at most 600 frames a side, dropped on leaving the screen
+  (`POST /api/versus/stop`).
+
+### Key presses from the title
+
+Number keys `1` to `7` jump to and open an item in the main menu, MORE and the mode picker, so no screen costs more than before.
+
+| screen | before | now |
+|---|---|---|
+| main menu | 1 | 1 (Enter) |
+| start a game, first run | 4 (Enter, Enter, Enter to jump to START, Enter) | **3** (Enter, Enter, Enter on OUR GHOSTS) |
+| another mode (CLASSIC, ARCADE, THINK, VERSUS) | 4 or more | 3 (Enter, `1`, then `1` to `5`) |
+| CUSTOM | 4 | 3 (Enter, `1`, `7`), then START |
+| WATCH setup | 3 | 3 (Enter, `2`) |
+| LEARN, SCORES | 3 | 3 (Enter, `3` or `4`) |
+| MORE | n/a | 3 (Enter, `5`) |
+| REPLAYS | 5 (Enter, Up x3, Enter) | 3 (Enter, `5`, `1`) |
+| OPTIONS | 4 | 3 (Enter, `5`, `2`) |
+| ABOUT | 3 | 3 (Enter, `5`, `3`) |
+
+Esc goes back one step everywhere (a list open inside CUSTOM closes first), Enter confirms, and the footer hints are on
+every screen. Selections from the main menu: every screen is 1 or 2; CUSTOM and VERSUS are 2 (PLAY, then the item).
+The picker's first Enter (title) and second Enter (PLAY) land on the mode list, so a game starts on the third Enter,
+not the second: the title and menu screens cannot be skipped without removing screens the owner likes.
 
 ## Performance and leaks
 One `requestAnimationFrame` loop per mounted canvas, stopped on screen exit; one `EventSource`, closed on exit (the server

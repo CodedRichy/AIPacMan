@@ -68,5 +68,5 @@ assert.equal(fx.length, 1, fx.join('|'));
 assert.ok(fx[0].includes('REQUEST_SUPPORT') && fx[0].includes('became BLOCKER'), fx[0]);
 assert.deepEqual(LY.chatterEffects(prev, { ...sample, ghosts: prev.ghosts }), [], 'no behaviour change, no claim');
 assert.equal(LY.payloadText({ a: 'x'.repeat(100) }).length, 48);
-assert.ok(LY.LEGEND.some(([k]) => /Dotted/.test(k)) && LY.LEGEND.find(([k]) => /Dotted/.test(k))[1].includes('not the ghost'), 'legend says paths are recorder BFS routes');
+assert.ok(LY.LEGEND.some(([k]) => /Dotted/.test(k)) && LY.LEGEND.find(([k]) => /Dotted/.test(k))[1].includes('not the ghost'), 'legend says paths are shortest-route estimates, not the ghost own plan');
 console.log('ok layers_test');
