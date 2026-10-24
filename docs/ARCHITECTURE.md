@@ -157,3 +157,7 @@ per tick; see `benchmarks/PROFILE.md`.
 6. Singleton coordinators leak state across games in one process.
 7. Effectiveness: see `benchmarks/BASELINE.md`. The advanced features did not make the team stronger
    than the plain `CoordinatedGhostTeam` or `DirectionalGhost`.
+
+## Phase 10 addendum: fog and messaging
+
+The statement above that there is no message passing describes the Phase 3/4 teams. `multiagent/chatterGhostAgents.py` adds teams with partial observability (fog) and a real per-game message bus; see `docs/GHOST_MESSAGING.md`. The existing teams are untouched.
