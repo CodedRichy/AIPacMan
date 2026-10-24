@@ -1,0 +1,85 @@
+{
+ "search": {
+  "score": 26,
+  "max": 25,
+  "questions": [
+   {
+    "q": "q1",
+    "score": 3.0,
+    "max": 3.0
+   },
+   {
+    "q": "q2",
+    "score": 3.0,
+    "max": 3.0
+   },
+   {
+    "q": "q3",
+    "score": 3.0,
+    "max": 3.0
+   },
+   {
+    "q": "q4",
+    "score": 3.0,
+    "max": 3.0
+   },
+   {
+    "q": "q5",
+    "score": 3.0,
+    "max": 3.0
+   },
+   {
+    "q": "q6",
+    "score": 3.0,
+    "max": 3.0
+   },
+   {
+    "q": "q7",
+    "score": 5.0,
+    "max": 4.0
+   },
+   {
+    "q": "q8",
+    "score": 3.0,
+    "max": 3.0
+   }
+  ],
+  "ranAt": "2026-10-24T21:32:15",
+  "command": "python3 autograder.py --no-graphics",
+  "cwd": "."
+ },
+ "multiagent": {
+  "score": 25,
+  "max": 25,
+  "questions": [
+   {
+    "q": "q1",
+    "score": 4.0,
+    "max": 4.0
+   },
+   {
+    "q": "q2",
+    "score": 5.0,
+    "max": 5.0
+   },
+   {
+    "q": "q3",
+    "score": 5.0,
+    "max": 5.0
+   },
+   {
+    "q": "q4",
+    "score": 5.0,
+    "max": 5.0
+   },
+   {
+    "q": "q5",
+    "score": 6.0,
+    "max": 6.0
+   }
+  ],
+  "ranAt": "2026-10-24T21:32:22",
+  "command": "python3 autograder.py --no-graphics",
+  "cwd": "multiagent"
+ }
+}

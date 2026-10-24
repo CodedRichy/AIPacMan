@@ -21,6 +21,20 @@ python3 dashboard/tests/test_dashboard.py       # tests (pytest also works if in
 installed in this environment). The page can also record games itself via
 "Record game" (`POST /api/run`).
 
+## Arcade front end (Phase 9)
+
+```bash
+python3 dashboard/live.py --port 8765        # then open http://127.0.0.1:8765/play
+python3 dashboard/tests/test_arcade.py       # new tests (node optional, for the layers logic)
+python3 dashboard/arcade_api.py refresh-autograder   # re-run both autograders into dashboard/cache/
+```
+
+Title, main menu, PLAY, WATCH AI, LEVEL SELECT (the project map, with a search visualiser and a Minimax/AlphaBeta/Expectimax
+comparison), HIGH SCORES (from the newest `benchmarks/results/*.json`, plus a RUN BENCHMARK button limited to 2 worker
+processes), REPLAYS, OPTIONS, ABOUT. Design decisions are in `DESIGN.md`. New backend files: `session.py` (lives, READY,
+GAME OVER, extra life at 10,000, level progression, fruit), `searchviz.py`, `arcade_api.py`, `compare_worker.py`.
+`/` and `/live.html` still work.
+
 ## Files
 
 | path | purpose |
