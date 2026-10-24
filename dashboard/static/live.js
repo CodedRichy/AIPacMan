@@ -264,7 +264,7 @@
   }
 
   function drawCommander(now, gp, f) {
-    const [rx, ry] = ringXY(), R = cell * 0.7;                                      // larger than the 0.4 hunters, and it never moves
+    const [rx, ry] = ringXY(), R = cell * 0.4;                                      // same size as the hunters (0.4); only the crown sets it apart, and it never moves
     S.orders = S.orders.filter((o) => now - o.t0 < ORDER_MS);
     const hot = S.orders.length > 0;
     const col = hot ? S.colors.order : alpha(S.colors.inkDim, 0.85);

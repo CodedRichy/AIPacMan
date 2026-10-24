@@ -73,7 +73,11 @@ class GameState:
 
     # static variable keeps track of which states have had getLegalActions called
     explored = set()
+    # Tracking every generated state leaks memory (search agents generate millions of
+    # states per game and nothing clears the set), so it only starts once something calls getAndResetExplored().
+    trackExplored = False
     def getAndResetExplored():
+        GameState.trackExplored = True  # a consumer exists (e.g. the grader), so start tracking
         tmp = GameState.explored.copy()
         GameState.explored = set()
         return tmp
@@ -120,8 +124,9 @@ class GameState:
         # Book keeping
         state.data._agentMoved = agentIndex
         state.data.score += state.data.scoreChange
-        GameState.explored.add(self)
-        GameState.explored.add(state)
+        if GameState.trackExplored:
+            GameState.explored.add(self)
+            GameState.explored.add(state)
         return state
 
     def getLegalPacmanActions( self ):
