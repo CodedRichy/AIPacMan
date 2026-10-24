@@ -176,6 +176,9 @@ class VoronoiGhostTeam(_TeamBase):
 
     HUNT_TIMER = 3         # scared ghosts resume hunting at/below this timer
     STICK = 0.35           # stickiness weight (maze distance from previous target)
+    CHASER = False         # nearest hunter always chases Pac-Man directly
+    CAP_R = 10             # capsules Pac-Man can reach within this many steps are guarded
+    CAP_BONUS = 0.0        # assignment bonus for guarding a threatened capsule
     STRICT = True          # ghost must arrive strictly before Pac-Man
 
     # -- territory / targets ------------------------------------------------
@@ -188,7 +191,7 @@ class VoronoiGhostTeam(_TeamBase):
             owned[c] = (dg < dp) if self.STRICT else (dg <= dp)
         return owned
 
-    def chooseTargets(self, table, pac, owned, k):
+    def chooseTargets(self, table, pac, owned, k, capsules=()):
         """Frontier tiles of ghost territory, one per Pac-Man exit first."""
         Dp = table.D[pac]
         frontier = [c for c in table.cells if owned[c] and
@@ -215,9 +218,12 @@ class VoronoiGhostTeam(_TeamBase):
                 cands.append(t)
         if pac not in cands:
             cands.append(pac)
+        for c in capsules:
+            if self.CAP_BONUS > 0 and Dp.get(c, _BIG) <= self.CAP_R and c not in cands:
+                cands.append(c)
         return cands
 
-    def assign(self, table, ghosts, cands):
+    def assign(self, table, ghosts, cands, capsules=()):
         """Brute-force optimal assignment with stickiness; ghosts: [(idx, cell)]."""
         mem = type(self)._memory
         k = len(ghosts)
@@ -230,6 +236,8 @@ class VoronoiGhostTeam(_TeamBase):
                 c = table.dist(g, t)
                 if prev is not None:
                     c += self.STICK * min(table.dist(prev, t), 8)
+                if t in capsules:
+                    c -= self.CAP_BONUS
                 row.append(c)
             cost.append(row)
         best, bestperm = None, None
@@ -259,8 +267,15 @@ class VoronoiGhostTeam(_TeamBase):
         targets = {}
         if hunters:
             owned = self.territory(table, pac, [c for _, c in hunters])
-            cands = self.chooseTargets(table, pac, owned, len(hunters))
-            targets = self.assign(table, hunters, cands)
+            caps = tuple(_cell(c) for c in state.getCapsules())
+            cands = self.chooseTargets(table, pac, owned, len(hunters), caps)
+            if self.CHASER and len(hunters) > 1:
+                near = min(hunters, key=lambda h: table.dist(h[1], pac))
+                rest = [h for h in hunters if h is not near]
+                targets = self.assign(table, rest, cands, caps)
+                targets[near[0]] = pac
+            else:
+                targets = self.assign(table, hunters, cands, caps)
             for i, t in targets.items():
                 type(self)._memory[i] = t
         return pac, hunters, scared, targets
@@ -491,3 +506,21 @@ class VoronoiExpectimaxPessimisticTeam(VoronoiExpectimaxGhostTeam):
     _lastKey = None
     _lastFood = 10 ** 9
     PAC_MODEL = 'pessimistic'
+
+
+class VoronoiChaserTeam(VoronoiGhostTeam):
+    _plan = {}
+    _memory = {}
+    _lastKey = None
+    _lastFood = 10 ** 9
+    CHASER = True
+
+
+class VoronoiLooseTeam(VoronoiGhostTeam):
+    """Ties go to the ghost (Pac-Man moves first, so an equal-distance tile is a capture)."""
+    _plan = {}
+    _memory = {}
+    _lastKey = None
+    _lastFood = 10 ** 9
+    STRICT = False
+    STICK = 0.1
