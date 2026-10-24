@@ -14,6 +14,8 @@
 import coordinatedGhostAgents as _base   # Renu's file — only imported, never edited
 from game import Agent, Directions, Actions
 from util import manhattanDistance, Queue
+from coordinatedGhostAgents import (MazeDistances, tileOf, ghostMoves, ghostTarget,
+                                     pickAction, reachTime)
 
 
 # =============================================================================
@@ -57,6 +59,7 @@ class EnhancedGhostCoordinator(_base.GhostCoordinator):
         # Maps ghost_index -> the tile that ghost is about to move into.
         # Reset each new game tick (detected via stateHash below).
         self.reservedTiles  = {}
+        self.tickReservations = {}   # per-tick table used by the team's getAction
         # We use a hash of (pacman_pos, ghost_positions) to detect new ticks.
         # When the hash changes = a new game tick has started = safe to clear reservations.
         self._lastStateHash = None
@@ -148,10 +151,10 @@ class EnhancedGhostCoordinator(_base.GhostCoordinator):
         # If Pac-Man moved since last tick, the delta is their velocity.
         # On the very first tick, lastPacmanPos is None, so velocity stays (0,0).
         if self.lastPacmanPos is not None and self.lastPacmanPos != pacmanPos:
-            self.pacmanVelocity = (
-                pacmanPos[0] - self.lastPacmanPos[0],
-                pacmanPos[1] - self.lastPacmanPos[1]
-            )
+            step = (pacmanPos[0] - self.lastPacmanPos[0],
+                    pacmanPos[1] - self.lastPacmanPos[1])
+            # A jump of more than one tile means a new game: forget the heading.
+            self.pacmanVelocity = step if abs(step[0]) + abs(step[1]) == 1 else (0, 0)
         # Always update lastPacmanPos so next tick has fresh data
         self.lastPacmanPos = pacmanPos
 
@@ -659,8 +662,18 @@ class EnhancedGhostCoordinator(_base.GhostCoordinator):
         Records: "ghost #ghostIndex is about to step onto `tile`."
 
         Lower-priority ghosts will check this before finalising their own move.
+        The table is cleared once per tick by EnhancedCoordinatedGhostTeam.getAction
+        (assignRoles runs once per ghost, with a different state each time, so
+        its own state-hash reset cannot be used to detect a tick boundary).
         """
+        self.tickReservations[ghostIndex] = tile
         self.reservedTiles[ghostIndex] = tile
+
+    def tilesReservedByHigherPriority(self, ghostIndex):
+        """Set of tiles reserved this tick by ghosts that outrank `ghostIndex`."""
+        mine = self._rolePriority(ghostIndex)
+        return {t for i, t in self.tickReservations.items()
+                if i != ghostIndex and self._rolePriority(i) < mine}
 
     def isTileReservedByHigherPriority(self, ghostIndex, tile):
         """
@@ -668,32 +681,14 @@ class EnhancedGhostCoordinator(_base.GhostCoordinator):
         this tick, meaning our ghost should pick a different tile.
 
         PRIORITY ORDER (lower number = higher priority = moves first):
-            chaser      → 1
-            interceptor → 2
-            blocker     → 3
-            sweeper     → 4
-
-        WHY THIS ORDER:
-        ---------------
-        The chaser is always closest to Pac-Man and most critical to keep
-        on the right path. The sweeper is the least critical (it's covering
-        distant food tiles), so it yields to everyone else.
+            chaser -> 1, interceptor -> 2, blocker -> 3, sweeper -> 4
         """
-        my_priority = self._rolePriority(ghostIndex)
-
-        for other_idx, other_tile in self.reservedTiles.items():
-            if other_idx == ghostIndex:
-                continue
-            other_priority = self._rolePriority(other_idx)
-            if other_priority < my_priority and other_tile == tile:
-                return True   # a more important ghost is going here → yield
-
-        return False
+        return tile in self.tilesReservedByHigherPriority(ghostIndex)
 
     def _rolePriority(self, ghostIndex):
         """Maps ghost index → priority number (1 = highest, 4 = lowest)."""
         role         = self.roles.get(ghostIndex, 'sweeper')
-        priority_map = {'chaser': 1, 'interceptor': 2, 'blocker': 3, 'sweeper': 4}
+        priority_map = {'chaser': 1, 'capsule_guard': 1, 'interceptor': 2, 'blocker': 3, 'sweeper': 4}
         return priority_map.get(role, 4)
 
 
@@ -707,141 +702,123 @@ class EnhancedCoordinatedGhostTeam(Agent):
     """
     Drop-in replacement for Renu's CoordinatedGhostTeam.
 
-    Uses EnhancedGhostCoordinator which adds Tasks 4, 5, and 6.
-    We do NOT inherit from CoordinatedGhostTeam — that would pull in
-    Renu's global _coordinator_instance and cause conflicts.
-    Instead we maintain our own class-level coordinator here.
+    Uses EnhancedGhostCoordinator (roles, velocity prediction, pincer targets,
+    Phase 4 tactical state machine). We do NOT inherit from CoordinatedGhostTeam
+    because that would pull in Renu's global _coordinator_instance.
 
     HOW getAction() WORKS each tick:
     ---------------------------------
-    1. Coordinator assigns roles + targets (with pincer injection for interceptor).
-    2. Ghost gets its target tile from the coordinator.
-    3. BFS finds the shortest path from ghost's position to that target.
-    4. Task 6 check: if the first step of that path is reserved by a
-       higher-priority ghost, pick the next-best step instead.
-    5. Register our chosen tile so lower-priority ghosts can avoid it.
-    6. Return the move.
+    1. Coordinator assigns roles (and Phase 4 tactical state / capsule guard).
+    2. Scared ghosts run to the safest reachable tile (see fleeAction).
+    3. Otherwise each role gets a target: the chaser goes straight at Pac-Man,
+       the interceptor to the nearest tile on the FAR side of Pac-Man from the
+       chaser that it can reach no later than Pac-Man (a real pincer), the
+       capsule guard to the threatened capsule if it can win the race there.
+    4. The first step comes from cached maze-distance maps (O(1) per move; the
+       old code ran a full BFS per ghost per tick).
+    5. Task 6: if a higher-priority ghost has already reserved the tile we
+       want, take an equally short alternative if one exists. Reservations are
+       cleared once per tick.
+    All moves are chosen from state.getLegalActions(), so ghosts never reverse
+    unless the engine allows it and never use STOP.
     """
 
     # Shared coordinator across all ghost instances in the same game.
-    # Class-level (not instance-level) so all 4 ghost objects see the same one.
     _coordinator = None
 
     def __init__(self, index):
         self.index = index
-        # First ghost to be created initialises the shared coordinator
         if EnhancedCoordinatedGhostTeam._coordinator is None:
             EnhancedCoordinatedGhostTeam._coordinator = EnhancedGhostCoordinator()
 
     def getAction(self, state):
         coord = EnhancedCoordinatedGhostTeam._coordinator
-
-        # --- Step 1: Coordinator assigns roles and targets ---
-        # This internally runs Renu's role logic + our pincer override (Task 5)
-        # and clears reservations if a new tick is detected (Task 6 setup).
-        coord.assignRoles(state)
-
-        # --- Step 2: Get MY assigned target tile ---
-        myTarget     = coord.assignedTargets.get(self.index, state.getPacmanPosition())
-        legalActions = state.getLegalActions(self.index)
-        ghostPos     = state.getGhostPosition(self.index)
-        walls        = state.getWalls()
-
-        if not legalActions or (len(legalActions) == 1 and legalActions[0] == Directions.STOP):
+        moves = ghostMoves(state, self.index)
+        if not moves:
             return Directions.STOP
 
-        # --- Step 3: BFS — find the first action toward our target ---
-        bestAction = self._bfsFirstAction(
-            ghostPos, myTarget, legalActions, walls, walls.width, walls.height
-        )
+        # --- tick / game boundary bookkeeping ---
+        # Ghosts act in index order every tick, so a call from a lower-or-equal
+        # index than the previous caller starts a new tick.
+        if self.index <= getattr(coord, '_lastCaller', 0):
+            coord.tickReservations = {}
+            coord.reservedTiles = {}
+        coord._lastCaller = self.index
+        food = state.getNumFood()
+        if food > getattr(coord, '_lastFood', 0):      # food went up: new game
+            coord.lastPacmanPos = None
+            coord.pacmanVelocity = (0, 0)
+            coord.pacmanHistory = []
+            coord.tickReservations = {}
+        coord._lastFood = food
 
-        # --- Step 4 (Task 6): Collision avoidance ---
-        # What tile would we land on if we take bestAction?
-        nextTile = self._resultTile(ghostPos, bestAction)
+        coord.assignRoles(state)
+        walls = state.getWalls()
+        md = MazeDistances.get(walls)
+        legalActions = state.getLegalActions(self.index)
+        ghostPos = state.getGhostPosition(self.index)
 
-        # Is that tile already claimed by a higher-priority ghost?
-        if coord.isTileReservedByHigherPriority(self.index, nextTile):
-            # Yes — find the next-best action that avoids the reserved tile
-            bestAction = self._avoidAndMove(
-                ghostPos, myTarget, legalActions, walls, blockedTile=nextTile
-            )
-            nextTile = self._resultTile(ghostPos, bestAction)
+        if len(moves) == 1:                 # corridor / half-tile: no choice
+            coord.reserveTile(self.index, moves[0][1])
+            return moves[0][0]
 
-        # --- Step 5 (Task 6): Register our tile so lower-priority ghosts see it ---
-        coord.reserveTile(self.index, nextTile)
+        roles = dict(coord.roles)
+        myRole = roles.get(self.index, 'chaser')
+        pacTile = tileOf(state.getPacmanPosition())
+        scared = state.getGhostState(self.index).scaredTimer > 0
 
-        return bestAction
+        # Capsule guard: only worth it if we can win the race to the pellet.
+        cap = coord.threatenedCapsule
+        if myRole == 'capsule_guard' and cap is not None and not scared and \
+                reachTime(moves, cap, md) <= md.distFrom(pacTile).get(cap, 10 ** 6):
+            action, myTarget = None, cap
+        else:
+            if myRole == 'capsule_guard':
+                roles[self.index] = 'interceptor'
+            action, myTarget = ghostTarget(state, self.index, roles, md, moves)
+
+        if action is None:
+            blocked = coord.tilesReservedByHigherPriority(self.index)
+            action = self._bfsFirstAction(ghostPos, myTarget, legalActions, walls,
+                                          walls.width, walls.height, md=md, blocked=blocked)
+
+        coord.reserveTile(self.index, self._resultTile(ghostPos, action))
+        return action
 
     # -------------------------------------------------------------------------
-    # BFS path-finding (same algorithm Renu used, extracted as a clean method)
+    # Path-finding: shortest-path first step using cached maze distances
     # -------------------------------------------------------------------------
 
-    def _bfsFirstAction(self, start, target, legalActions, walls, width, height):
+    def _bfsFirstAction(self, start, target, legalActions, walls, width, height,
+                        md=None, blocked=None):
         """
-        Finds the first action to take to reach `target` from `start`
-        using Breadth-First Search (shortest path in an unweighted grid).
+        First action of a shortest path from `start` to `target`.
 
-        WHAT BFS DOES HERE:
-        --------------------
-        - We add every legal first step into a queue, paired with the action
-          that produced it.
-        - We expand tiles layer by layer (BFS = level order = shortest path).
-        - The moment we find `target` in the queue, we return the first action
-          that was taken to start that path.
-        - If BFS never reaches target (disconnected maze section), we fall
-          back to the action that minimises Manhattan distance to target.
+        The BFS now lives in MazeDistances (one BFS per source tile, cached for
+        the whole layout), so this is a handful of dict lookups. Only actions in
+        `legalActions` are considered. If `target` is unreachable we fall back to
+        the Manhattan-greedy step.
         """
-        if start == target:
-            # Already at target — just move toward Pac-Man (greedy fallback)
-            return self._manhattanBestAction(start, target, legalActions)
-
-        visited = {start}
-        queue   = Queue()
-
-        # Seed the queue with all legal first steps
+        md = md or MazeDistances.get(walls)
+        moves = []
         for action in legalActions:
             if action == Directions.STOP:
                 continue
-            dx, dy  = Actions.directionToVector(action)
-            nextPos = (int(start[0]+dx), int(start[1]+dy))
-            if 0 <= nextPos[0] < width and 0 <= nextPos[1] < height and not walls[nextPos[0]][nextPos[1]]:
-                if nextPos == target:
-                    return action        # target is one step away → done immediately
-                if nextPos not in visited:
-                    visited.add(nextPos)
-                    queue.push((nextPos, action))   # (position, first_action_that_led_here)
-
-        # Expand the frontier until we hit target
-        while not queue.isEmpty():
-            currentPos, firstAction = queue.pop()
-            for action in [Directions.NORTH, Directions.SOUTH, Directions.EAST, Directions.WEST]:
-                dx, dy  = Actions.directionToVector(action)
-                nextPos = (int(currentPos[0]+dx), int(currentPos[1]+dy))
-                if 0 <= nextPos[0] < width and 0 <= nextPos[1] < height:
-                    if walls[nextPos[0]][nextPos[1]] or nextPos in visited:
-                        continue
-                    if nextPos == target:
-                        return firstAction   # found it — return the very first step
-                    visited.add(nextPos)
-                    queue.push((nextPos, firstAction))
-
-        # BFS couldn't reach target (shouldn't happen in a connected maze)
-        # Fall back to Manhattan-minimising greedy step
-        return self._manhattanBestAction(start, target, legalActions)
+            moves.append((action, tileOf(self._resultTile(start, action))))
+        if not moves:
+            return Directions.STOP
+        if tileOf(target) not in md.distFrom(tileOf(start)):
+            return self._manhattanBestAction(start, target, legalActions)
+        return pickAction(moves, tileOf(target), md, blocked=blocked)
 
     def _manhattanBestAction(self, pos, target, legalActions):
-        """
-        Greedy fallback: pick whichever legal action gets us closest to
-        `target` by Manhattan distance in one step.
-        """
+        """Greedy fallback: legal action minimising Manhattan distance to `target`."""
         bestAction = Directions.STOP
         bestDist   = float('inf')
         for action in legalActions:
             if action == Directions.STOP:
                 continue
-            dx, dy  = Actions.directionToVector(action)
-            nextPos = (int(pos[0]+dx), int(pos[1]+dy))
-            dist    = manhattanDistance(nextPos, target)
+            dist = manhattanDistance(self._resultTile(pos, action), target)
             if dist < bestDist:
                 bestDist   = dist
                 bestAction = action
@@ -852,51 +829,18 @@ class EnhancedCoordinatedGhostTeam(Agent):
     # -------------------------------------------------------------------------
 
     def _resultTile(self, pos, action):
-        """
-        Returns the tile we'd land on after taking `action` from `pos`.
-        If action is STOP, we stay on pos.
-        """
+        """Tile we'd land on after taking `action` from `pos` (STOP stays put)."""
         if action == Directions.STOP:
             return pos
         dx, dy = Actions.directionToVector(action)
-        return (int(pos[0]+dx), int(pos[1]+dy))
+        return (pos[0] + dx, pos[1] + dy)
 
     def _avoidAndMove(self, pos, target, legalActions, walls, blockedTile):
         """
-        Task 6: Called when our first-choice tile is reserved by a higher-
-        priority ghost. Picks the next-best legal action that avoids `blockedTile`.
-
-        HOW IT WORKS:
-        -------------
-        Iterate over all legal actions, skip any that lead to `blockedTile`,
-        and among the remaining ones pick whichever is closest to our target
-        (Manhattan distance). This is a greedy one-step decision — good enough
-        to break deadlocks without expensive re-planning.
-
-        FALLBACK:
-        ---------
-        If every possible move leads to the blocked tile (very rare — would
-        need a 1-tile dead-end where the only exit is blocked), we allow the
-        blocked tile anyway rather than returning STOP indefinitely.
+        Task 6: best legal action that avoids `blockedTile` (a tile reserved by
+        a higher-priority ghost), judged by maze distance to `target`. If every
+        legal move lands on the blocked tile it is allowed (never deadlock).
         """
-        bestAction = None
-        bestDist   = float('inf')
-
-        for action in legalActions:
-            if action == Directions.STOP:
-                continue
-            nextTile = self._resultTile(pos, action)
-            if nextTile == blockedTile:
-                continue        # skip the reserved tile
-            dist = manhattanDistance(nextTile, target)
-            if dist < bestDist:
-                bestDist   = dist
-                bestAction = action
-
-        # If no clear alternative exists, allow the blocked tile (last resort)
-        if bestAction is None:
-            for action in legalActions:
-                if action != Directions.STOP:
-                    return action
-
-        return bestAction if bestAction else legalActions[0]
+        md = MazeDistances.get(walls)
+        return self._bfsFirstAction(pos, target, legalActions, walls, walls.width,
+                                    walls.height, md=md, blocked={blockedTile})
