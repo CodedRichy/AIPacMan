@@ -1,58 +1,59 @@
-# AI Pac-Man - Pending Tasks Checklist
+# AI Pac-Man - Status Checklist
+
+Legend: [x] done and verified by running it, [~] done but with a stated gap, [ ] not done.
+Numbers marked "(agent)" were reported by a build agent and not re-measured by the lead.
+Last full check (merged `main`): search autograder 26/25, multiagent autograder 25/25, `python3 -m unittest discover -s tests` 27 pass, dashboard / live / arcade tests pass.
 
 ## Phase 1: Search (Completed)
-> Status: done. Verified by autograder tests per earlier notes (26/25 as recorded; not re-run in this pass).
-- [x] Understand maze and action model
-- [x] Implement Depth-First Search (DFS)
-- [x] Implement Breadth-First Search (BFS)
-- [x] Implement Uniform-Cost Search (UCS)
-- [x] Implement A* Search
-- [x] Corners problem implementation
-- [x] Corners heuristic (MST-based)
-- [x] Food search / All-food heuristic (MST-based)
-- [x] Closest dot search
-- [x] All search tests passing (26/25)
+- [x] DFS, BFS, UCS, A*, corners problem and heuristic, food heuristic, closest dot
+- [x] Autograder 26/25
+- [x] A* skips stale queue entries; shared cached corners/food bound. A* expansions at equal cost, mediumCorners 357 -> 249, trickySearch 410 -> 255 (agent)
 
 ## Phase 2: Multi-Agent (Completed)
-> Status: done. 25/25 autograder result is as recorded earlier; not re-run in this pass. Expectimax/AlphaBeta depth 2 run in the benchmark without errors.
-- [x] ReflexAgent implementation
-- [x] MinimaxAgent implementation
-- [x] AlphaBetaAgent implementation
-- [x] ExpectimaxAgent implementation
-- [x] Better evaluation function
-- [x] All multi-agent tests passing (25/25)
+- [x] Reflex, Minimax, AlphaBeta, Expectimax agents and the better evaluation function; autograder 25/25
+- [ ] A cleanup refactor of `multiAgents.py` exists on branch `worktree-agent-a531992b31a03fcb1` (no strength gain, speed not re-timed). Not merged.
 
-## Phase 3: Ghost Coordination & Strategic Planning (Completed)
-> Status: implemented; verified to run (integration tests, no illegal moves, no freezes). NOT verified as effective: reservation never fires (0/4302 checks in an instrumented run) and the enhanced team is a weaker hunter than the base team. See benchmarks/BASELINE.md and docs/ARCHITECTURE.md.
-- [x] **Ghost Coordinator Design** - Implement a centralized coordinator to orchestrate ghost behavior
-- [x] **Role Allocation System** - Assign roles (Chaser, Interceptor, Blocker, Sweeper) dynamically based on game state
-- [x] **Path Planning for Ghosts** - Implement search-based path planning for coordinated ghost movement
-- [x] **Trajectory Prediction** - Predict Pac-Man's future position based on velocity and maze layout
-- [x] **Pincer/Containment Strategies** - Implement coordinated encirclement tactics
-- [x] **Path Priority & Collision Avoidance** - Prevent ghost overlap and deadlocks with reserved paths
+## Phase 3: Ghost Coordination (Completed)
+- [x] Coordinator, roles, maze-distance path planning, trajectory prediction, pincer, per-tick reservations (the original reservation table never fired; fixed)
+- [x] Measured on merged `main` (GreedyAgent, mediumClassic, 200 games, Pac-Man average score, lower = stronger ghosts): Enhanced -284, Coordinated -273, stock DirectionalGhost -103, RandomGhost +61. See `benchmarks/BASELINE.md`.
+- [~] Against Expectimax depth 2, Pac-Man still scores above zero on mediumClassic (it takes a capsule, then hunts scared ghosts). Better than stock but not solved.
 
-## Phase 4: Advanced Coordination Features (Completed)
-> Status: implemented; verified to run; effectiveness measured NEGATIVE. TRAP_AMBUSH is the most common tactical state but has no behavior attached; strategy switching only retargets the sweeper. Shared perception and scared scatter run but have no measured benefit.
-- [x] **Shared Perception Model** - Ensure ghosts share global board state information
-- [x] **Tactical State Machine** - Implement role transitions based on Pac-Man's position/power-ups
-- [x] **Dynamic Strategy Switching** - Adapt coordination based on remaining food/capsules
-- [x] **Scared Ghost Coordination** - Differentiate behavior when ghosts are scared vs hunting
+## Phase 4: Advanced Coordination (Completed)
+- [x] Shared perception, tactical state machine, strategy switching, scared-ghost fleeing, `getTelemetry()`
+- [x] Fixed: state leaked between games, roles recomputed per ghost per tick, whole team scattering when one ghost was scared, state flapping
+- [~] Ablation: fleeing and the tactical state help; macro strategy and sticky roles show no measurable effect
 
-## Phase 5: Visualization & Dashboard (Pending)
-> Status: not done on this branch (dashboard is being built on a separate branch; nothing here is verified).
-- [ ] **WebSocket/State Sync Backend** - Implement real-time game state broadcasting
-- [ ] **FastAPI Backend** - Create API endpoints for game control and telemetry
-- [ ] **HTML5 Canvas Visualization** - Build visual dashboard showing agent decisions
-- [ ] **Telemetry Display** - Show ghost roles, planned paths, and target predictions
-- [ ] **Path Tracing** - Visualize search paths and coordination strategies
-- [ ] **Real-time Metrics** - Display coordination efficiency and strategy effectiveness
+## Phase 5: Visualization & Dashboard (Completed, with deviations)
+- [x] Record-and-replay dashboard (`dashboard/`): recorder, server, canvas UI, tests
+- [~] Deviation: stdlib server with Server-Sent Events plus a key POST, not FastAPI/WebSocket (neither is installed; one-way telemetry needs only SSE)
 
 ## Phase 6: Integration & Polish (In progress)
-> Status: harness, tests, docs, demo layouts and profile are done and verified by running them. The config module exists but is NOT wired into the ghost files. Performance optimization is not done (profile only).
-- [x] **Integration Testing** - `tests/test_integration.py` (4 teams x 10 layouts x 2 seeds: no exceptions, no illegal actions, no frozen-ghost stalls); `python3 -m unittest discover -s tests -v`
-- [x] **Benchmark harness** - `benchmarks/run_benchmark.py`, baseline in `benchmarks/BASELINE.md`
-- [ ] **Performance Optimization** - profiled (`benchmarks/PROFILE.md`); ghost decisions cost about 0.2 ms each, so no urgent hotspot; nothing optimized
-- [~] **Configuration System** - `multiagent/ghostConfig.py` written and tested; not wired in (`docs/CONFIG_WIRING.md`)
-- [x] **Documentation** - `docs/ARCHITECTURE.md`, `docs/CONFIG_WIRING.md`, `docs/DEMO_LAYOUTS.md`
-- [x] **Demo Layouts** - six `multiagent/layouts/demo_*.lay`, load and play with every team
-- [ ] **Make the Phase 3/4 features actually help** - fix reservation reset key, give TRAP_AMBUSH a behavior, re-benchmark
+- [x] Integration tests, benchmark harness, demo layouts, profile, architecture docs
+- [~] `multiagent/ghostConfig.py` is written and tested but NOT wired into the ghost files (`docs/CONFIG_WIRING.md`)
+- [ ] Performance optimization: profiled only; ghost decisions cost about 0.2 ms each
+
+## Phase 7: Ghost algorithm bake-off (Completed)
+- [x] Voronoi, Voronoi+expectimax and maze-distance-chase teams compared with 95% CIs, with a held-out layout and agent (`docs/BAKEOFF.md`)
+- Result: no clear winner. `VoronoiGhostTeam` is clearly better only on originalClassic (4 ghosts); worse on contestClassic; tied elsewhere. Recommendation: keep `CoordinatedGhostTeam` as default.
+
+## Phase 8: Arcade mode, live play, Commander (Completed, partly unverified)
+- [x] `--arcade`: eyes and ghost-house revival, scatter/chase timers, 200/400/800/1600 scores, four personalities, speed ratios (`docs/ARCADE_MODE.md`)
+- [x] Browser live play with key POSTs; Commander ghost with real order messages
+- [~] Not verified: real-time feel. Not built: lives and level progression inside the engine (done in the Phase 9 session layer), no-upward-turn zones, ghost freeze on eating
+
+## Phase 9: Arcade front end (Completed, partly unverified)
+- [x] `/play`: title, menu, play and watch-AI setup, level select with 7 level pages, search visualiser, high scores, replays, layers panel with CLASSIC / COACH / TEACHER presets
+- [~] Not verified: input latency, death and level-clear animations, initials entry, RUN BENCHMARK click
+
+## Phase 10: Ghost messaging (Completed)
+- [x] Message bus with fog mode; eight message types that change receiver behaviour (`docs/GHOST_MESSAGING.md`)
+- [~] Honest result: communication does not reliably help (marginal gain on 2 ghosts, none on 4). Keep as a demonstration feature, not the default team.
+
+## Phase 11: Ghosts that learn player habits (Planned)
+- [ ] See `docs/PHASE11_LEARNING.md`
+
+## Other
+- [x] Memory leak fixed: `GameState.explored` kept every generated state (multi-GB per search game). Tracking now starts only when the grader asks.
+- [x] `tools/capped` runs a job under a hard memory cap
+- [ ] Repo reorganisation (framework duplicated at root and in `multiagent/`)
+- [ ] Nothing is pushed to GitHub
