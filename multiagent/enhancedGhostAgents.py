@@ -43,6 +43,8 @@ class EnhancedGhostCoordinator(_base.GhostCoordinator):
         this table and pick an alternate tile if theirs is taken.
     """
 
+    DEFAULT_FEATURES = {'macro': True, 'tactical': True, 'flee': True, 'sticky': True}
+
     def __init__(self, gameState=None):
         # Call Renu's __init__ so roles and assignedTargets are set up
         super().__init__(gameState)
@@ -108,6 +110,11 @@ class EnhancedGhostCoordinator(_base.GhostCoordinator):
         #   - 'ENDGAME_COLLAPSE': Food < 20% or <= 5 dots — all-out aggressive collapse
         self.initialFoodCount     = None
         self.currentStrategy      = 'EARLY_SPREAD'
+
+        # Phase 4 feature switches (ablation/benchmarks flip DEFAULT_FEATURES)
+        self.features = dict(self.DEFAULT_FEATURES)
+        self._resetPhase4State()
+        self.initialFoodCount = None
 
     # =========================================================================
     # TASK 4 — Velocity-based Trajectory Prediction
@@ -284,60 +291,41 @@ class EnhancedGhostCoordinator(_base.GhostCoordinator):
     # PHASE 4 TASK 1 — Shared Perception Model
     # =========================================================================
 
+    def _resetPhase4State(self):
+        """Forget everything learned in a previous game (the coordinator is a
+        class-level singleton that outlives a game when -n > 1)."""
+        self.pacmanHistory = []
+        self.lastCapsuleCount = None
+        self.ghostsAreScared = False
+        self.currentTacticalState = 'COORDINATED_HUNT'
+        self.threatenedCapsule = None
+        self.initialFoodCount = None
+        self.currentStrategy = 'EARLY_SPREAD'
+        self.scaredTimers = {}
+        self._p4Tick = 0
+        self._tickKey = None
+        self._lastFoodSeen = None
+        self._stateSince = 0
+        self._roleSince = 0
+        self._baseRoles = {}
+        self._pacDistCache = (None, None)
+
     def _updatePerception(self, gameState):
         """
-        Called at the start of every tick (from assignRoles) to refresh the
-        coordinator's shared memory of the board.
-
-        HOW IT WORKS:
-        -------------
-        Three things are tracked:
-
-        1. PACMAN HISTORY — We append Pac-Man's current position to a rolling
-           buffer (max HISTORY_LEN entries). This tells every ghost not just
-           where Pac-Man IS, but where they've BEEN — useful for spotting
-           patrol patterns, repeated corridors, and for smarter prediction.
-
-        2. CAPSULE DELTA — We compare the current capsule count to the count
-           from the previous tick. If it dropped, Pac-Man just ate a power
-           pellet THIS TICK → we set ghostsAreScared = True immediately,
-           one tick before the game's scaredTimer propagates to all ghosts.
-
-        3. SCARED FLAG — We check each ghost's scaredTimer directly. If any
-           ghost has scaredTimer > 0, we set ghostsAreScared = True so every
-           agent in the team can check this single flag without re-reading
-           every ghost state independently.
-
-        WHY THIS MATTERS:
-        -----------------
-        Without shared perception, each ghost independently reads the game
-        state and makes local decisions. With it, the coordinator builds a
-        richer picture that all 4 ghosts benefit from simultaneously —
-        they share one "brain" that remembers the past and detects events.
+        Shared perception, refreshed once per game tick (see assignRoles).
+        Tracks Pac-Man's recent positions, the capsule count, and the
+        PER-GHOST scared timers (a ghost eaten by Pac-Man respawns unscared,
+        so a single team-wide flag is wrong). Cheap: O(#ghosts).
         """
-        pacmanPos     = gameState.getPacmanPosition()
-        capsuleCount  = len(gameState.getCapsules())
-        ghostStates   = gameState.getGhostStates()
-
-        # 1. Update Pac-Man's position history (rolling window)
+        pacmanPos = gameState.getPacmanPosition()
         self.pacmanHistory.append(pacmanPos)
         if len(self.pacmanHistory) > self.HISTORY_LEN:
-            self.pacmanHistory.pop(0)   # drop the oldest entry
-
-        # 2. Detect power pellet being eaten this tick
-        if self.lastCapsuleCount is not None and capsuleCount < self.lastCapsuleCount:
-            # A capsule just disappeared — Pac-Man ate it → ghosts are now scared
-            self.ghostsAreScared = True
-        self.lastCapsuleCount = capsuleCount
-
-        # 3. Sync scared flag with actual ghost states
-        # (covers the case where scared timer naturally expires)
-        self.ghostsAreScared = any(gs.scaredTimer > 0 for gs in ghostStates)
-
-        # 4. Phase 4 Task 3: Evaluate Macro Strategy (food progression)
+            self.pacmanHistory.pop(0)
+        self.lastCapsuleCount = len(gameState.getCapsules())
+        self.scaredTimers = {i + 1: int(gs.scaredTimer)
+                             for i, gs in enumerate(gameState.getGhostStates())}
+        self.ghostsAreScared = any(t > 0 for t in self.scaredTimers.values())
         self._evaluateMacroStrategy(gameState)
-
-        # 5. Phase 4 Task 2: Evaluate Tactical State (threats & opportunities)
         self._evaluateTacticalState(gameState)
 
     # =========================================================================
@@ -346,235 +334,149 @@ class EnhancedGhostCoordinator(_base.GhostCoordinator):
 
     def _evaluateMacroStrategy(self, gameState):
         """
-        Determines the high-level macro strategy based on game progression
-        (remaining food and capsules).
-
-        STRATEGY MODES:
-        ---------------
-        1. 'EARLY_SPREAD' (Food > 50% remaining):
-           The board is full of food. Ghosts maintain wide territorial control
-           to restrict Pac-Man's free roaming and prevent him from clearing
-           large sections unmolested.
-
-        2. 'MID_PRESSURE' (Food between 20% and 50% remaining):
-           Pac-Man is actively clearing food. Ghosts tighten their containment
-           perimeter and focus pressure on high-density food clusters.
-
-        3. 'ENDGAME_COLLAPSE' (Food < 20% or <= 5 dots remaining):
-           Pac-Man is close to winning! Sweeper stops roaming to distant food
-           and transitions into an active pursuer / close guard. All ghosts
-           collapse on Pac-Man and the remaining dots.
+        Macro strategy from food progression. It only BIASES the sweeper's
+        target (see assignRoles); chaser/interceptor/blocker always pursue.
+        EARLY_SPREAD > 50% food; MID_PRESSURE 20-50%; ENDGAME_COLLAPSE below.
+        Thresholds have a small hysteresis band so it cannot flap on one dot.
         """
         currentFood = gameState.getNumFood()
         if self.initialFoodCount is None or self.initialFoodCount == 0:
             self.initialFoodCount = max(currentFood, 1)
-
-        foodRatio = currentFood / float(self.initialFoodCount)
-
-        if foodRatio > 0.50 and currentFood > 5:
-            self.currentStrategy = 'EARLY_SPREAD'
-        elif foodRatio > 0.20 and currentFood > 5:
-            self.currentStrategy = 'MID_PRESSURE'
-        else:
-            self.currentStrategy = 'ENDGAME_COLLAPSE'
-
-        return self.currentStrategy
+        ratio = currentFood / float(self.initialFoodCount)
+        cur = self.currentStrategy
+        # Strategy only ever advances (food never increases within a game).
+        if cur == 'EARLY_SPREAD' and ratio <= 0.50:
+            cur = 'MID_PRESSURE'
+        if cur == 'MID_PRESSURE' and (ratio <= 0.20 or currentFood <= 5):
+            cur = 'ENDGAME_COLLAPSE'
+        self.currentStrategy = cur
+        return cur
 
     def _findDenseFoodCluster(self, gameState):
-        """
-        Helper for Task 3: Dynamic Strategy Switching.
-        Finds the food dot that is closest to the 'center of mass' of all remaining food,
-        representing the densest cluster of dots where Pac-Man must eventually go.
-        """
+        """Food dot closest to the centroid of all remaining food."""
         foodList = gameState.getFood().asList()
         if not foodList:
             return gameState.getPacmanPosition()
-
-        # Calculate centroid (average x, average y)
-        avgX = sum(f[0] for f in foodList) / float(len(foodList))
-        avgY = sum(f[1] for f in foodList) / float(len(foodList))
-
-        # Find the actual food dot closest to this centroid
-        bestFood = min(foodList, key=lambda f: (f[0] - avgX)**2 + (f[1] - avgY)**2)
-        return bestFood
+        n = float(len(foodList))
+        avgX = sum(f[0] for f in foodList) / n
+        avgY = sum(f[1] for f in foodList) / n
+        return min(foodList, key=lambda f: (f[0] - avgX) ** 2 + (f[1] - avgY) ** 2)
 
     # =========================================================================
     # PHASE 4 TASK 2 — Tactical State Machine
     # =========================================================================
 
+    CACHE_TICK = 1           # compute once per tick (0 = every ghost call)
+    MIN_STATE_DWELL = 5      # ticks a tactical state is held before switching
+    MIN_ROLE_DWELL = 6       # ticks a role assignment is held before re-ranking
+    ROLE_SWITCH_MARGIN = 3   # new chaser must be this much closer to justify a swap
+    FLEE_MIN_TIMER = 5       # scared ghost flees only while timer exceeds this
+
     def _evaluateTacticalState(self, gameState):
         """
-        Evaluates the immediate tactical posture of the ghost team.
-        Transitions the team between tactical states on each tick:
-
-        STATE TRANSITIONS:
-        ------------------
-        1. 'SCATTER':
-           Active when Pac-Man has consumed a power pellet (scaredTimer > 0).
-           Overrides all other tactical states — defensive survival is #1 priority.
-
-        2. 'DEFEND_CAPSULE':
-           Triggered when an active capsule exists and Pac-Man is within
-           threatening distance (<= 4 Manhattan distance) of it, AND a ghost
-           is positioned to potentially contest or intercept before Pac-Man eats it.
-           One ghost is dispatched as 'capsule_guard' to race to that pellet.
-
-        3. 'TRAP_AMBUSH':
-           Triggered when Pac-Man is confined in a corridor or pocket with
-           limited escape routes (<= 2 open exits) and ghosts are in position
-           to seal the bottleneck.
-
-        4. 'COORDINATED_HUNT' (Default):
-           Standard tactical offensive: Chaser drives, Interceptor pincers,
-           Blocker covers bottleneck, Sweeper controls territory.
+        SCATTER         some ghost is still scared long enough to flee
+        DEFEND_CAPSULE  Pac-Man within 4 of a capsule (released beyond 6)
+        TRAP_AMBUSH     Pac-Man in a dead end
+        COORDINATED_HUNT default
+        A state is held for MIN_STATE_DWELL ticks before it may change.
         """
-        # State 1: SCATTER (Highest priority — defensive survival)
-        if self.ghostsAreScared:
-            self.currentTacticalState = 'SCATTER'
-            self.threatenedCapsule = None
-            return self.currentTacticalState
-
         pacmanPos = gameState.getPacmanPosition()
-        capsules = gameState.getCapsules()
-
-        # State 2: DEFEND_CAPSULE (Threat-driven)
-        # Check if Pac-Man is dangerously close to any power pellet
+        cur = self.currentTacticalState
         threatened = None
-        for cap in capsules:
-            distToPacman = manhattanDistance(pacmanPos, cap)
-            if distToPacman <= 4:
-                threatened = cap
-                break
+        if self.features.get('tactical', True):
+            reach = 6 if cur == 'DEFEND_CAPSULE' else 4
+            for cap in gameState.getCapsules():
+                if manhattanDistance(pacmanPos, cap) <= reach:
+                    threatened = cap
+                    break
 
-        if threatened is not None:
-            self.currentTacticalState = 'DEFEND_CAPSULE'
-            self.threatenedCapsule = threatened
-            return self.currentTacticalState
+        if any(t > self.FLEE_MIN_TIMER for t in self.scaredTimers.values()) \
+                and self.features.get('flee', True):
+            desired = 'SCATTER'
+        elif threatened is not None:
+            desired = 'DEFEND_CAPSULE'
+        elif self.features.get('tactical', True) and \
+                self._isPacmanTrappedOrCorridor(gameState, pacmanPos):
+            desired = 'TRAP_AMBUSH'
         else:
-            self.threatenedCapsule = None
+            desired = 'COORDINATED_HUNT'
 
-        # State 3: TRAP_AMBUSH (Opportunity-driven)
-        # Check if Pac-Man is in a corridor/dead-end with <= 2 open exits
-        if self._isPacmanTrappedOrCorridor(gameState, pacmanPos):
-            self.currentTacticalState = 'TRAP_AMBUSH'
-            return self.currentTacticalState
-
-        # State 4: COORDINATED_HUNT (Default offensive)
-        self.currentTacticalState = 'COORDINATED_HUNT'
+        if desired != cur and self._p4Tick - self._stateSince >= self.MIN_STATE_DWELL:
+            self.currentTacticalState = desired
+            self._stateSince = self._p4Tick
+        # DEFEND_CAPSULE bookkeeping follows the (possibly held) state
+        self.threatenedCapsule = threatened if self.currentTacticalState == 'DEFEND_CAPSULE' else None
         return self.currentTacticalState
 
     def _isPacmanTrappedOrCorridor(self, gameState, pacmanPos):
-        """
-        Helper for Task 2.
-        Checks if Pac-Man is currently in a narrow corridor (2 exits total)
-        or a dead-end (1 exit total), making an ambush lockdown highly effective.
-        """
+        """True when Pac-Man stands in a dead end (a single open exit)."""
         walls = gameState.getWalls()
-        width, height = walls.width, walls.height
         x, y = pacmanPos
         openExits = 0
-        for dx, dy in [(1,0), (-1,0), (0,1), (0,-1)]:
+        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
             nx, ny = x + dx, y + dy
-            if 0 <= nx < width and 0 <= ny < height and not walls[nx][ny]:
+            if 0 <= nx < walls.width and 0 <= ny < walls.height and not walls[nx][ny]:
                 openExits += 1
-
-        # A dead-end has 1 exit; a standard corridor has 2 exits.
-        return openExits <= 2
+        return openExits <= 1
 
     # =========================================================================
     # PHASE 4 TASK 4 — Scared Ghost Coordination
     # =========================================================================
 
+    def _bfsDistances(self, walls, start):
+        dist = {start: 0}
+        q = Queue()
+        q.push(start)
+        while not q.isEmpty():
+            cx, cy = q.pop()
+            d = dist[(cx, cy)] + 1
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                nxt = (cx + dx, cy + dy)
+                if nxt not in dist and 0 <= nxt[0] < walls.width and \
+                        0 <= nxt[1] < walls.height and not walls[nxt[0]][nxt[1]]:
+                    dist[nxt] = d
+                    q.push(nxt)
+        return dist
+
     def getFleeTarget(self, gameState, ghostIndex):
         """
-        When ghosts are scared (Pac-Man ate a power pellet), they should NOT
-        hunt — they should RUN AWAY in a coordinated scatter pattern.
-
-        HOW IT WORKS:
-        -------------
-        Renu's original code has no scared behaviour at all — scared ghosts
-        still try to move toward their hunting target. We fix that here.
-
-        Each ghost picks a SCATTER CORNER: a fixed corner of the maze opposite
-        to Pac-Man. We assign a different corner per ghost role so they spread
-        out and don't all flee to the same spot (which would make them easy
-        to catch and waste scared time colliding).
-
-        Corner assignment by role:
-            chaser      → top-right corner    (opposite of bottom-left)
-            interceptor → top-left corner
-            blocker     → bottom-right corner
-            sweeper     → bottom-left corner
-
-        We give each corner a small inset (2 tiles) so ghosts don't try to
-        walk into a wall at the literal corner.
-
-        WHY SCATTER CORNERS:
-        --------------------
-        This is actually how the original Pac-Man arcade game worked —
-        ghosts scatter to fixed corners when not hunting. It's a proven
-        pattern that prevents them clustering and keeps them spread across
-        the maze, making them harder to catch all at once.
+        Flee target for a scared ghost: the tile that maximises the maze
+        distance from Pac-Man while staying cheap for the ghost to reach
+        (score = distPacman - 0.5 * distGhost). Pac-Man's distance map is
+        cached per tick; one extra BFS per fleeing ghost.
         """
-        walls  = gameState.getWalls()
-        width  = walls.width
-        height = walls.height
-        role   = self.roles.get(ghostIndex, 'sweeper')
-
-        # Corner tile coordinates with 2-tile inset from actual corner walls
-        corners = {
-            'chaser'      : (width - 3,  height - 3),   # top-right
-            'interceptor' : (2,           height - 3),   # top-left
-            'blocker'     : (width - 3,  2),             # bottom-right
-            'sweeper'     : (2,           2),             # bottom-left
-        }
-
-        corner = corners.get(role, (2, 2))
-
-        # Safety: if the corner tile is a wall (rare layout edge case),
-        # nudge inward until we find a walkable tile
-        cx, cy = corner
-        for offset in range(0, 4):
-            tx, ty = cx + offset, cy + offset
-            if 0 <= tx < width and 0 <= ty < height and not walls[tx][ty]:
-                return (tx, ty)
-
-        # Absolute fallback: just move away from Pac-Man
-        return gameState.getPacmanPosition()
+        walls = gameState.getWalls()
+        pacmanPos = gameState.getPacmanPosition()
+        if self._pacDistCache[0] != (pacmanPos, self._p4Tick):
+            self._pacDistCache = ((pacmanPos, self._p4Tick),
+                                  self._bfsDistances(walls, pacmanPos))
+        dP = self._pacDistCache[1]
+        ghostPos = tuple(int(v) for v in gameState.getGhostPosition(ghostIndex))
+        dG = self._bfsDistances(walls, ghostPos)
+        best, bestScore = None, None
+        for tile, g in dG.items():
+            if g == 0 or tile not in dP:
+                continue
+            score = dP[tile] - 0.5 * g
+            if bestScore is None or score > bestScore:
+                best, bestScore = tile, score
+        return best if best is not None else pacmanPos
 
     # =========================================================================
+    # Read-only dashboard export is defined after assignRoles (getTelemetry).
     # assignRoles — integrates Phase 3 & 4 Coordination, State Machine & Strategy
     # =========================================================================
 
     def assignRoles(self, gameState):
         """
-        Override of Renu's assignRoles().
+        Override of Renu's assignRoles(). Every ghost calls this each tick,
+        so the Phase 4 work is done once per tick (keyed on score+Pac-Man
+        position; score drops by 1 per Pac-Man move) and cached for the
+        other ghosts. A rise in food count marks a new game and resets state.
 
-        HOW IT WORKS:
-        -------------
-        1. [Phase 3 Task 6] Compute state hash to detect new ticks and reset
-           the reservation table for path collision avoidance.
-
-        2. [Phase 4 Task 1] Run _updatePerception() to refresh shared memory:
-           Pac-Man history, capsule delta, scared timers, macro strategy,
-           and current tactical state.
-
-        3. Call Renu's baseline assignRoles() via super() to establish initial
-           distance-based role assignments and base targets.
-
-        4. [Phase 4 Task 2 & 4] Tactical State Machine Overrides:
-           - 'SCATTER': Scared mode. All ghosts flee to designated scatter corners.
-           - 'DEFEND_CAPSULE': Pac-Man is near a power pellet. A ghost is
-             assigned 'capsule_guard' to race to the pellet and deny it.
-           - 'TRAP_AMBUSH': Pac-Man is trapped in a narrow corridor. Chaser
-             presses from behind while Interceptor locks down the forward choke.
-           - 'COORDINATED_HUNT': Standard pincer setup with velocity projection.
-
-        5. [Phase 4 Task 3] Dynamic Strategy Switching Overrides:
-           - 'MID_PRESSURE': Sweeper redirects from far food to the densest food
-             cluster to contest high-value areas.
-           - 'ENDGAME_COLLAPSE': Late game (<20% food). Sweeper becomes an active
-             pursuer; all ghosts converge on Pac-Man and remaining dots.
+        Order: reservation reset (Phase 3) -> perception/state machine ->
+        base roles/targets -> sticky role mapping -> tactical overrides
+        (flee / capsule guard / pincer) -> macro bias on the sweeper.
         """
         # --- Phase 3 Task 6: detect new tick and reset reservations ---
         stateHash = (
@@ -582,72 +484,106 @@ class EnhancedGhostCoordinator(_base.GhostCoordinator):
             tuple(gameState.getGhostPositions())
         )
         if stateHash != self._lastStateHash:
-            # New game tick detected → clear the reservation table
             self.reservedTiles  = {}
             self._lastStateHash = stateHash
 
-        # --- Phase 4 Task 1, 2, 3: refresh shared perception & state machines ---
+        # --- Phase 4: once-per-tick gate + new-game detection ---
+        food = gameState.getNumFood()
+        if self._lastFoodSeen is not None and food > self._lastFoodSeen:
+            self._resetPhase4State()
+        self._lastFoodSeen = food
+        tickKey = (gameState.getScore(), gameState.getPacmanPosition(), food)
+        if self.CACHE_TICK and tickKey == self._tickKey and self.roles:
+            return
+        self._tickKey = tickKey
+        self._p4Tick += 1
+
         self._updatePerception(gameState)
 
-        # --- Renu's base role assignment runs (unchanged) ---
+        # --- base roles/targets; harvest the per-role target table ---
         super().assignRoles(gameState)
+        order = ['chaser', 'interceptor', 'blocker', 'sweeper']
+        roleTarget = {r: self.assignedTargets[g] for g, r in self.roles.items()}
+        pacmanPos = gameState.getPacmanPosition()
+        ghostIdxs = sorted(self.roles.keys())
 
-        # =====================================================================
-        # Phase 4 Task 2 & 4: Tactical State Machine Handling
-        # =====================================================================
+        # --- who flees (scared with enough timer left) ---
+        fleeing = []
+        if self.features.get('flee', True):
+            fleeing = [g for g in ghostIdxs if self.scaredTimers.get(g, 0) > self.FLEE_MIN_TIMER]
+        active = [g for g in ghostIdxs if g not in fleeing]
 
-        # State 1: SCATTER (Phase 4 Task 4)
-        if self.currentTacticalState == 'SCATTER':
-            for ghostIdx in self.roles:
-                self.assignedTargets[ghostIdx] = self.getFleeTarget(gameState, ghostIdx)
-            return   # Offensive coordination suspended while scared
+        # --- sticky role mapping over the active ghosts ---
+        def dist(g):
+            return manhattanDistance(gameState.getGhostPosition(g), pacmanPos)
+        avail = order[:len(active)]
+        fresh = {g: r for g, r in zip(sorted(active, key=dist), avail)}
+        prev = self._baseRoles
+        valid = (self.features.get('sticky', True) and
+                 len(prev) == len(active) and set(prev) == set(active) and
+                 sorted(prev.values()) == sorted(avail))
+        if valid and fresh != prev:
+            prevChaser = [g for g, r in prev.items() if r == 'chaser']
+            freshChaser = [g for g, r in fresh.items() if r == 'chaser']
+            keep = True
+            if prevChaser and freshChaser:
+                better = dist(prevChaser[0]) - dist(freshChaser[0]) >= self.ROLE_SWITCH_MARGIN
+                keep = not (better and self._p4Tick - self._roleSince >= self.MIN_ROLE_DWELL)
+            final = prev if keep else fresh
+        else:
+            final = fresh if not valid else prev
+        if final != prev:
+            self._roleSince = self._p4Tick
+        self._baseRoles = dict(final)
 
-        # State 2: DEFEND_CAPSULE (Phase 4 Task 2)
+        self.roles = dict(final)
+        self.assignedTargets = {g: roleTarget[r] for g, r in final.items()}
+
+        # --- Scared ghosts flee (Phase 4 Task 4) ---
+        for g in fleeing:
+            self.roles[g] = 'scared'
+            self.assignedTargets[g] = self.getFleeTarget(gameState, g)
+        if not active:
+            return
+
+        # --- DEFEND_CAPSULE: nearest non-chaser guards the pellet ---
         if self.currentTacticalState == 'DEFEND_CAPSULE' and self.threatenedCapsule:
-            # Pick a secondary ghost (blocker/sweeper/interceptor) to defend the pellet
-            # so the primary chaser can continue applying direct pressure
-            candidates = [idx for idx in self.roles if self.roles[idx] in ('blocker', 'sweeper', 'interceptor')]
-            if not candidates:
-                candidates = list(self.roles.keys())
+            candidates = [g for g in active if self.roles[g] != 'chaser']
             if candidates:
-                guardIdx = min(
-                    candidates,
-                    key=lambda idx: manhattanDistance(gameState.getGhostPosition(idx), self.threatenedCapsule)
-                )
-                self.roles[guardIdx] = 'capsule_guard'
-                self.assignedTargets[guardIdx] = self.threatenedCapsule
+                guard = min(candidates, key=lambda g: manhattanDistance(
+                    gameState.getGhostPosition(g), self.threatenedCapsule))
+                self.roles[guard] = 'capsule_guard'
+                self.assignedTargets[guard] = self.threatenedCapsule
 
-        # State 3 & 4: Pincer & Ambush Targeting (Phase 3 Task 5 + Phase 4 Task 2)
+        # --- Pincer: interceptor cuts off ahead of Pac-Man (Phase 3) ---
         ahead_target, _ = self.computePincerTargets(gameState)
-        for ghostIdx, role in list(self.roles.items()):
+        for g, role in list(self.roles.items()):
             if role == 'interceptor':
-                # In both TRAP_AMBUSH and COORDINATED_HUNT, interceptor blocks ahead
-                self.assignedTargets[ghostIdx] = ahead_target
+                self.assignedTargets[g] = ahead_target
 
-        # =====================================================================
-        # Phase 4 Task 3: Dynamic Macro Strategy Overrides
-        # =====================================================================
+        # --- Macro bias: only the sweeper's target, never the pursuers ---
+        if self.features.get('macro', True):
+            for g, role in self.roles.items():
+                if role != 'sweeper':
+                    continue
+                foodList = gameState.getFood().asList()
+                if self.currentStrategy == 'MID_PRESSURE':
+                    dense = self._findDenseFoodCluster(gameState)
+                    if manhattanDistance(dense, pacmanPos) <= 10:
+                        self.assignedTargets[g] = dense
+                elif self.currentStrategy == 'ENDGAME_COLLAPSE' and foodList:
+                    self.assignedTargets[g] = min(
+                        foodList, key=lambda f: manhattanDistance(f, pacmanPos))
 
-        if self.currentStrategy == 'MID_PRESSURE':
-            # Sweeper shifts focus to the centroid / densest cluster of remaining food
-            denseFood = self._findDenseFoodCluster(gameState)
-            for ghostIdx, role in self.roles.items():
-                if role == 'sweeper':
-                    self.assignedTargets[ghostIdx] = denseFood
-
-        elif self.currentStrategy == 'ENDGAME_COLLAPSE':
-            # Endgame panic! Pac-Man has eaten > 80% of dots.
-            # Sweeper transitions into an aggressive secondary pursuer
-            pacmanPos = gameState.getPacmanPosition()
-            foodList = gameState.getFood().asList()
-            for ghostIdx, role in self.roles.items():
-                if role == 'sweeper':
-                    if foodList:
-                        # Target the remaining food dot closest to Pac-Man to cut him off
-                        closestFoodToPacman = min(foodList, key=lambda f: manhattanDistance(f, pacmanPos))
-                        self.assignedTargets[ghostIdx] = closestFoodToPacman
-                    else:
-                        self.assignedTargets[ghostIdx] = pacmanPos
+    def getTelemetry(self):
+        """Read-only, JSON-serialisable snapshot for the dashboard."""
+        return {
+            'tacticalState': self.currentTacticalState,
+            'macroStrategy': self.currentStrategy,
+            'roles': {int(g): str(r) for g, r in self.roles.items()},
+            'targets': {int(g): [int(t[0]), int(t[1])] for g, t in self.assignedTargets.items()},
+            'scaredTimers': {int(g): int(t) for g, t in self.scaredTimers.items()},
+        }
 
     # =========================================================================
     # TASK 6 — Path Priority & Collision Avoidance (Reservation Table)
