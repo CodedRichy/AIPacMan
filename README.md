@@ -7,11 +7,11 @@ Built on the Berkeley CS188 Pac-Man framework. The original part is phase 3: gho
 - Search (phase 1): DFS, BFS, UCS and A*, a corners problem and food-search heuristics. `PENDING_TASKS.md` records all search tests passing.
 - Multi-agent (phase 2): reflex, minimax, alpha-beta and expectimax Pac-Man agents with a custom evaluation function (25 of 25 tests per `PENDING_TASKS.md`).
 - Ghost coordination (phase 3): a `GhostCoordinator` in `multiagent/coordinatedGhostAgents.py` ranks ghosts by distance to Pac-Man and gives them roles. The nearest ghost is the chaser. The next ones are an interceptor aimed at Pac-Man's predicted position, a blocker sent to a choke point, and a sweeper.
-- `multiagent/enhancedGhostAgents.py` subclasses the coordinator for the later phase 3 tasks (about 500 lines).
+- `multiagent/enhancedGhostAgents.py` subclasses the coordinator for trajectory prediction, pincer strategies, path priority and scared-ghost behavior.
 
 ## Status
 
-Phases 1 and 2 are done. Phase 3 code exists, but the checklist in `PENDING_TASKS.md` still lists it as pending. How well the ghosts play is not verified. Phases 4 to 6 (shared tactical state machine, a FastAPI and WebSocket backend, a canvas dashboard) are not started. The course files are unmodified framework code.
+Phases 1, 2 and 3 are checked off in `PENDING_TASKS.md`. Phase 4 is in progress: shared perception and scared-ghost coordination are done, the tactical state machine and dynamic strategy switching are not. How well the ghosts play against Pac-Man is not measured. Phases 5 and 6 (a FastAPI and WebSocket backend, a canvas dashboard, integration testing) are not started. The course files are unmodified framework code.
 
 ## Stack
 
