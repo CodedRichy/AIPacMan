@@ -1,6 +1,7 @@
 # enhancedGhostAgents.py
 # ----------------------
-# Phase 3 completion: Tasks 4, 5, and 6
+# Phase 3 completion : Tasks 4, 5, 6
+# Phase 4 completion : Tasks 1 (Shared Perception), 4 (Scared Ghost Coordination)
 # Written by: [Your Name]
 #
 # This file does NOT modify any of Renu's code.
@@ -46,19 +47,46 @@ class EnhancedGhostCoordinator(_base.GhostCoordinator):
         # Call Renu's __init__ so roles and assignedTargets are set up
         super().__init__(gameState)
 
-        # --- Task 4 state ---
+        # --- Phase 3 Task 4 state ---
         # We need to remember where Pac-Man was on the PREVIOUS tick
         # so we can compute (new position - old position) = velocity vector
-        self.lastPacmanPos = None
+        self.lastPacmanPos  = None
         self.pacmanVelocity = (0, 0)   # (dx, dy), e.g. (1,0) = moving East
 
-        # --- Task 6 state ---
-        # Maps ghost_index -> the tile that ghost is about to move into
-        # Reset each new game tick (detected via stateHash below)
-        self.reservedTiles = {}
+        # --- Phase 3 Task 6 state ---
+        # Maps ghost_index -> the tile that ghost is about to move into.
+        # Reset each new game tick (detected via stateHash below).
+        self.reservedTiles  = {}
         # We use a hash of (pacman_pos, ghost_positions) to detect new ticks.
         # When the hash changes = a new game tick has started = safe to clear reservations.
         self._lastStateHash = None
+
+        # -----------------------------------------------------------------------
+        # Phase 4 Task 1 — Shared Perception Model
+        # -----------------------------------------------------------------------
+        # "Shared perception" means every ghost sees the same global picture of
+        # the board — not just its own immediate surroundings.
+        #
+        # The coordinator is already shared (class-level singleton), so all ghosts
+        # already read the same GameState. What was MISSING was MEMORY across ticks:
+        #   - Where has Pac-Man been recently? (movement history)
+        #   - Was a power pellet just eaten? (capsule delta)
+        #   - Are ghosts currently scared?
+        #
+        # We store that memory here so every ghost can consult it every tick
+        # through the coordinator — true shared perception.
+
+        # Ring buffer: last N positions of Pac-Man (oldest → newest)
+        self.pacmanHistory   = []          # list of (x,y) tuples, max length below
+        self.HISTORY_LEN     = 6           # how many ticks of history to keep
+
+        # Capsule count from the previous tick — lets us detect the exact tick
+        # a power pellet was eaten (current count < previous count).
+        self.lastCapsuleCount = None
+
+        # True if ghosts are currently in scared (fleeing) mode.
+        # Updated every tick in _updatePerception().
+        self.ghostsAreScared  = False
 
     # =========================================================================
     # TASK 4 — Velocity-based Trajectory Prediction
@@ -231,6 +259,125 @@ class EnhancedGhostCoordinator(_base.GhostCoordinator):
 
         return best_tile
 
+    # =========================================================================
+    # PHASE 4 TASK 1 — Shared Perception Model
+    # =========================================================================
+
+    def _updatePerception(self, gameState):
+        """
+        Called at the start of every tick (from assignRoles) to refresh the
+        coordinator's shared memory of the board.
+
+        HOW IT WORKS:
+        -------------
+        Three things are tracked:
+
+        1. PACMAN HISTORY — We append Pac-Man's current position to a rolling
+           buffer (max HISTORY_LEN entries). This tells every ghost not just
+           where Pac-Man IS, but where they've BEEN — useful for spotting
+           patrol patterns, repeated corridors, and for smarter prediction.
+
+        2. CAPSULE DELTA — We compare the current capsule count to the count
+           from the previous tick. If it dropped, Pac-Man just ate a power
+           pellet THIS TICK → we set ghostsAreScared = True immediately,
+           one tick before the game's scaredTimer propagates to all ghosts.
+
+        3. SCARED FLAG — We check each ghost's scaredTimer directly. If any
+           ghost has scaredTimer > 0, we set ghostsAreScared = True so every
+           agent in the team can check this single flag without re-reading
+           every ghost state independently.
+
+        WHY THIS MATTERS:
+        -----------------
+        Without shared perception, each ghost independently reads the game
+        state and makes local decisions. With it, the coordinator builds a
+        richer picture that all 4 ghosts benefit from simultaneously —
+        they share one "brain" that remembers the past and detects events.
+        """
+        pacmanPos     = gameState.getPacmanPosition()
+        capsuleCount  = len(gameState.getCapsules())
+        ghostStates   = gameState.getGhostStates()
+
+        # 1. Update Pac-Man's position history (rolling window)
+        self.pacmanHistory.append(pacmanPos)
+        if len(self.pacmanHistory) > self.HISTORY_LEN:
+            self.pacmanHistory.pop(0)   # drop the oldest entry
+
+        # 2. Detect power pellet being eaten this tick
+        if self.lastCapsuleCount is not None and capsuleCount < self.lastCapsuleCount:
+            # A capsule just disappeared — Pac-Man ate it → ghosts are now scared
+            self.ghostsAreScared = True
+        self.lastCapsuleCount = capsuleCount
+
+        # 3. Sync scared flag with actual ghost states
+        # (covers the case where scared timer naturally expires)
+        self.ghostsAreScared = any(gs.scaredTimer > 0 for gs in ghostStates)
+
+    # =========================================================================
+    # PHASE 4 TASK 4 — Scared Ghost Coordination
+    # =========================================================================
+
+    def getFleeTarget(self, gameState, ghostIndex):
+        """
+        When ghosts are scared (Pac-Man ate a power pellet), they should NOT
+        hunt — they should RUN AWAY in a coordinated scatter pattern.
+
+        HOW IT WORKS:
+        -------------
+        Renu's original code has no scared behaviour at all — scared ghosts
+        still try to move toward their hunting target. We fix that here.
+
+        Each ghost picks a SCATTER CORNER: a fixed corner of the maze opposite
+        to Pac-Man. We assign a different corner per ghost role so they spread
+        out and don't all flee to the same spot (which would make them easy
+        to catch and waste scared time colliding).
+
+        Corner assignment by role:
+            chaser      → top-right corner    (opposite of bottom-left)
+            interceptor → top-left corner
+            blocker     → bottom-right corner
+            sweeper     → bottom-left corner
+
+        We give each corner a small inset (2 tiles) so ghosts don't try to
+        walk into a wall at the literal corner.
+
+        WHY SCATTER CORNERS:
+        --------------------
+        This is actually how the original Pac-Man arcade game worked —
+        ghosts scatter to fixed corners when not hunting. It's a proven
+        pattern that prevents them clustering and keeps them spread across
+        the maze, making them harder to catch all at once.
+        """
+        walls  = gameState.getWalls()
+        width  = walls.width
+        height = walls.height
+        role   = self.roles.get(ghostIndex, 'sweeper')
+
+        # Corner tile coordinates with 2-tile inset from actual corner walls
+        corners = {
+            'chaser'      : (width - 3,  height - 3),   # top-right
+            'interceptor' : (2,           height - 3),   # top-left
+            'blocker'     : (width - 3,  2),             # bottom-right
+            'sweeper'     : (2,           2),             # bottom-left
+        }
+
+        corner = corners.get(role, (2, 2))
+
+        # Safety: if the corner tile is a wall (rare layout edge case),
+        # nudge inward until we find a walkable tile
+        cx, cy = corner
+        for offset in range(0, 4):
+            tx, ty = cx + offset, cy + offset
+            if 0 <= tx < width and 0 <= ty < height and not walls[tx][ty]:
+                return (tx, ty)
+
+        # Absolute fallback: just move away from Pac-Man
+        return gameState.getPacmanPosition()
+
+    # =========================================================================
+    # assignRoles — integrates Phase 4 perception + scared logic
+    # =========================================================================
+
     def assignRoles(self, gameState):
         """
         Override of Renu's assignRoles().
@@ -241,17 +388,24 @@ class EnhancedGhostCoordinator(_base.GhostCoordinator):
            If the hash is new (different from last tick), we know a new game
            tick has started → safe to clear the reservedTiles table (Task 6).
 
-        2. Call Renu's original assignRoles() via super() to populate self.roles
+        2. [Phase 4 Task 1] Run _updatePerception() to refresh shared memory:
+           Pac-Man's history, capsule delta, and scared flag.
+
+        3. Call Renu's original assignRoles() via super() to populate self.roles
            and self.assignedTargets exactly as she wrote them. We don't redo
            any of her logic.
 
-        3. After her assignment runs, we inject our pincer targets (Task 5):
+        4. After her assignment runs, we inject our pincer targets (Task 5):
            - Interceptor's target gets replaced with our "ahead" pincer tile
              (the tile that cuts off Pac-Man's escape route).
            - Chaser keeps Renu's original target (Pac-Man's current position).
            - Blocker and sweeper targets are left completely untouched.
+
+        5. [Phase 4 Task 4] If ghosts are scared, override EVERY ghost's target
+           with their designated scatter corner. Hunting mode is completely
+           suspended while scared.
         """
-        # --- Task 6: detect new tick and reset reservations ---
+        # --- Phase 3 Task 6: detect new tick and reset reservations ---
         stateHash = (
             gameState.getPacmanPosition(),
             tuple(gameState.getGhostPositions())
@@ -261,10 +415,21 @@ class EnhancedGhostCoordinator(_base.GhostCoordinator):
             self.reservedTiles  = {}
             self._lastStateHash = stateHash
 
-        # --- Renu's role assignment runs first (unchanged) ---
+        # --- Phase 4 Task 1: refresh shared perception memory ---
+        self._updatePerception(gameState)
+
+        # --- Renu's role assignment runs (unchanged) ---
         super().assignRoles(gameState)
 
-        # --- Task 5: override interceptor target with pincer "ahead" tile ---
+        # --- Phase 4 Task 4: if scared, override all targets with flee corners ---
+        # This check comes BEFORE the pincer injection so scared mode takes
+        # full priority — no point intercepting Pac-Man when he can eat us.
+        if self.ghostsAreScared:
+            for ghostIdx in self.roles:
+                self.assignedTargets[ghostIdx] = self.getFleeTarget(gameState, ghostIdx)
+            return   # skip pincer logic entirely while fleeing
+
+        # --- Phase 3 Task 5: override interceptor target with pincer "ahead" tile ---
         ahead_target, _ = self.computePincerTargets(gameState)
 
         for ghostIdx, role in self.roles.items():

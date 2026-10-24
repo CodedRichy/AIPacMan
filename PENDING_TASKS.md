@@ -20,19 +20,19 @@
 - [x] Better evaluation function
 - [x] All multi-agent tests passing (25/25)
 
-## Phase 3: Ghost Coordination & Strategic Planning (Pending)
-- [ ] **Ghost Coordinator Design** - Implement a centralized coordinator to orchestrate ghost behavior
-- [ ] **Role Allocation System** - Assign roles (Chaser, Interceptor, Blocker, Sweeper) dynamically based on game state
-- [ ] **Path Planning for Ghosts** - Implement search-based path planning for coordinated ghost movement
-- [ ] **Trajectory Prediction** - Predict Pac-Man's future position based on velocity and maze layout
-- [ ] **Pincer/Containment Strategies** - Implement coordinated encirclement tactics
-- [ ] **Path Priority & Collision Avoidance** - Prevent ghost overlap and deadlocks with reserved paths
+## Phase 3: Ghost Coordination & Strategic Planning (Completed)
+- [x] **Ghost Coordinator Design** - Implement a centralized coordinator to orchestrate ghost behavior
+- [x] **Role Allocation System** - Assign roles (Chaser, Interceptor, Blocker, Sweeper) dynamically based on game state
+- [x] **Path Planning for Ghosts** - Implement search-based path planning for coordinated ghost movement
+- [x] **Trajectory Prediction** - Predict Pac-Man's future position based on velocity and maze layout
+- [x] **Pincer/Containment Strategies** - Implement coordinated encirclement tactics
+- [x] **Path Priority & Collision Avoidance** - Prevent ghost overlap and deadlocks with reserved paths
 
-## Phase 4: Advanced Coordination Features (Pending)
-- [ ] **Shared Perception Model** - Ensure ghosts share global board state information
+## Phase 4: Advanced Coordination Features (In Progress)
+- [x] **Shared Perception Model** - Ensure ghosts share global board state information
 - [ ] **Tactical State Machine** - Implement role transitions based on Pac-Man's position/power-ups
 - [ ] **Dynamic Strategy Switching** - Adapt coordination based on remaining food/capsules
-- [ ] **Scared Ghost Coordination** - Differentiate behavior when ghosts are scared vs hunting
+- [x] **Scared Ghost Coordination** - Differentiate behavior when ghosts are scared vs hunting
 
 ## Phase 5: Visualization & Dashboard (Pending)
 - [ ] **WebSocket/State Sync Backend** - Implement real-time game state broadcasting
