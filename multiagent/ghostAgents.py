@@ -91,3 +91,5 @@ class DirectionalGhost(GhostAgent):
             dist[a] += (1-bestProb) / len(legalActions)
         dist.normalize()
         return dist
+
+from coordinatedGhostAgents import CoordinatedGhostTeam
