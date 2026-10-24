@@ -394,7 +394,9 @@ def handle_get(h, u):
         h._json(highscores(q.get('file')))
     elif p == '/api/searchviz':
         try:
-            h._json(_viz(q.get('algo', ''), q.get('maze', '')))
+            if q.get('algo') not in ('dfs', 'bfs', 'ucs', 'astar') or q.get('maze') not in ('tinyMaze', 'mediumMaze', 'bigMaze'):
+                raise ValueError('unknown algo/maze')
+            h._json(_viz(q['algo'], q['maze']))
         except ValueError as e:
             h._err(400, str(e))
         except Exception as e:

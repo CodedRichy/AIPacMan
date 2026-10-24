@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Pac-Man</title>
+<meta name="description" content="An arcade front end for the AI Pac-Man project: play, watch the AI, explore each phase, and study the ghost teams.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 4a12 12 0 1 0 0 24 12 12 0 0 0 0-24zm0 12 10-6a12 12 0 0 1 0 12z' fill='%23e8c34a'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="fonts.css">
+<link rel="stylesheet" href="arcade.css">
+</head>
+<body class="scan">
+<a class="skip" href="#screen">Skip to content</a>
+<header class="marquee"><a href="#/title">AI PAC-MAN</a><span class="lamp">FREE PLAY</span><a href="index.html" class="lamp">REPLAY DESK</a></header>
+<div id="stage">
+  <div id="bg" aria-hidden="true"></div>
+  <main id="screen" tabindex="-1"></main>
+</div>
+<footer class="deck">
+  <nav class="crumb" id="crumb" aria-label="You are here"></nav>
+  <p class="hints" id="hints" aria-label="Keys"></p>
+</footer>
+<noscript><p style="padding:1rem">This arcade needs JavaScript.</p></noscript>
+<script type="module" src="play/app.js"></script>
+</body>
+</html>
