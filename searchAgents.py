@@ -351,52 +351,84 @@ class CornersProblem(search.SearchProblem):
 def mazeDistanceOnWalls(point1: Tuple[int, int], point2: Tuple[int, int], walls) -> int:
     """
     BFS maze distance between two points on a walls Grid (game.py).
+    Returns float('inf') if point2 is unreachable from point1.
     """
-    if point1 == point2:
-        return 0
+    return _distancesFrom(point1, walls, {}).get(point2, float('inf'))
+
+
+def _distancesFrom(source: Tuple[int, int], walls, cache: dict) -> dict:
+    """
+    Maze distances from source to every reachable cell (one BFS), memoised
+    in cache so each source is searched at most once per problem.
+    """
+    if source in cache:
+        return cache[source]
     width, height = walls.width, walls.height
+    dist = {source: 0}
     frontier = util.Queue()
-    frontier.push((point1, 0))
-    visited = {point1}
+    frontier.push(source)
     while not frontier.isEmpty():
-        (x, y), dist = frontier.pop()
-        for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
-            nextx, nexty = x + dx, y + dy
-            if not (0 <= nextx < width and 0 <= nexty < height):
-                continue
-            if (nextx, nexty) not in visited and not walls[nextx][nexty]:
-                if (nextx, nexty) == point2:
-                    return dist + 1
-                visited.add((nextx, nexty))
-                frontier.push(((nextx, nexty), dist + 1))
-    return float('inf')
+        x, y = frontier.pop()
+        d = dist[(x, y)] + 1
+        for nx, ny in ((x, y + 1), (x, y - 1), (x + 1, y), (x - 1, y)):
+            if 0 <= nx < width and 0 <= ny < height and (nx, ny) not in dist and not walls[nx][ny]:
+                dist[(nx, ny)] = d
+                frontier.push((nx, ny))
+    cache[source] = dist
+    return dist
 
 
 def minimumSpanningTreeDistance(nodes, distanceFn):
     """
     Cost of a minimum spanning tree over the given nodes using distanceFn
-    for edge weights.  Admissible lower bound on the cost of a path that
-    visits every node.
+    for edge weights (Prim, O(n^2)).  Any walk visiting every node costs at
+    least this much.  Returns float('inf') if some node is unreachable.
     """
-    if len(nodes) <= 1:
+    n = len(nodes)
+    if n <= 1:
         return 0
-    inTree = {0}
+    inTree = [False] * n
+    inTree[0] = True
     minEdges = [distanceFn(nodes[0], node) for node in nodes]
     total = 0
-    while len(inTree) < len(nodes):
-        bestNode, bestDist = None, float('inf')
-        for i in range(len(nodes)):
-            if i not in inTree and minEdges[i] < bestDist:
-                bestNode, bestDist = i, minEdges[i]
-        if bestNode is None:
-            # All remaining nodes are unreachable; no finite spanning tree.
+    for _ in range(n - 1):
+        best, bestDist = -1, float('inf')
+        for i in range(n):
+            if not inTree[i] and minEdges[i] < bestDist:
+                best, bestDist = i, minEdges[i]
+        if best < 0:
             return float('inf')
         total += bestDist
-        inTree.add(bestNode)
-        for i in range(len(nodes)):
-            if i not in inTree:
-                minEdges[i] = min(minEdges[i], distanceFn(nodes[bestNode], nodes[i]))
+        inTree[best] = True
+        for i in range(n):
+            if not inTree[i]:
+                d = distanceFn(nodes[best], nodes[i])
+                if d < minEdges[i]:
+                    minEdges[i] = d
     return total
+
+
+def _visitAllLowerBound(position, targets, problem, tag: str):
+    """
+    Admissible and consistent lower bound on the cost of a walk from position
+    that visits every target: (distance to the nearest target) + MST(targets).
+    After reaching its first target the walk must still span all targets, so
+    it costs at least the MST; this is never weaker than MST(position+targets).
+    Maze distances and MSTs are cached in problem.heuristicInfo[tag].
+    """
+    if not targets:
+        return 0
+    info = problem.heuristicInfo.setdefault(tag, {'bfs': {}, 'mst': {}})
+    bfsCache = info['bfs']
+
+    def distance(a, b):
+        return _distancesFrom(a, problem.walls, bfsCache).get(b, float('inf'))
+
+    key = frozenset(targets)
+    if key not in info['mst']:
+        info['mst'][key] = minimumSpanningTreeDistance(list(targets), distance)
+    nearest = min(distance(position, t) for t in targets)
+    return nearest + info['mst'][key]
 
 
 def cornersHeuristic(state: Any, problem: CornersProblem):
@@ -420,20 +452,7 @@ def cornersHeuristic(state: Any, problem: CornersProblem):
     if not remaining:
         return 0
 
-    if 'cornerDistanceCache' not in problem.heuristicInfo:
-        problem.heuristicInfo['cornerDistanceCache'] = {}
-    cache = problem.heuristicInfo['cornerDistanceCache']
-
-    def distance(a, b):
-        key = (a, b) if a <= b else (b, a)
-        if key not in cache:
-            cache[key] = mazeDistanceOnWalls(key[0], key[1], walls)
-        return cache[key]
-
-    # MST over the current position and all unvisited corners: any path that
-    # visits every remaining corner must connect these nodes, so its cost is
-    # at least the MST cost.
-    return minimumSpanningTreeDistance([position] + remaining, distance)
+    return _visitAllLowerBound(position, remaining, problem, 'corners')
 
 
 
@@ -527,22 +546,7 @@ def foodHeuristic(state: Tuple[Tuple, List[List]], problem: FoodSearchProblem):
     if not foodList:
         return 0
 
-    # MST over Pacman's position and all remaining food using true maze
-    # distances (cached in problem.heuristicInfo): the path must connect
-    # every food cell, so its length is at least the MST cost.
-    if 'foodDistanceCache' not in problem.heuristicInfo:
-        problem.heuristicInfo['foodDistanceCache'] = {}
-    cache = problem.heuristicInfo['foodDistanceCache']
-
-    def distance(a, b):
-        if a == b:
-            return 0
-        key = (a, b) if a <= b else (b, a)
-        if key not in cache:
-            cache[key] = mazeDistanceOnWalls(key[0], key[1], problem.walls)
-        return cache[key]
-
-    return minimumSpanningTreeDistance([position] + foodList, distance)
+    return _visitAllLowerBound(position, foodList, problem, 'food')
 
 
 class ClosestDotSearchAgent(SearchAgent):
@@ -567,13 +571,8 @@ class ClosestDotSearchAgent(SearchAgent):
         Returns a path (a list of actions) to the closest dot, starting from
         gameState.
         """
-        # Here are some useful elements of the startState
-        startPosition = gameState.getPacmanPosition()
-        food = gameState.getFood()
-        walls = gameState.getWalls()
-        problem = AnyFoodSearchProblem(gameState)
-
-        return search.breadthFirstSearch(problem)
+        # BFS finds the nearest food (all step costs are 1).
+        return search.breadthFirstSearch(AnyFoodSearchProblem(gameState))
 
 class AnyFoodSearchProblem(PositionSearchProblem):
     """

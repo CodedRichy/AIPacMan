@@ -402,12 +402,16 @@ class GhostRules:
     These functions dictate how ghosts interact with their environment.
     """
     GHOST_SPEED = 1.0
+    RESPAWN_DELAY = 0  # rounds an eaten ghost sits out; 0 = original Berkeley behaviour
 
     def getLegalActions(state, ghostIndex):
         """
         Ghosts cannot stop, and cannot turn around unless they
         reach a dead end, but can turn 90 degrees at intersections.
+        A ghost that was just eaten can only wait out its respawn delay.
         """
+        if state.getGhostState(ghostIndex).respawnTimer > 0:
+            return [Directions.STOP]
         conf = state.getGhostState(ghostIndex).configuration
         possibleActions = Actions.getPossibleActions(
             conf, state.data.layout.walls)
@@ -440,6 +444,7 @@ class GhostRules:
             ghostState.configuration.pos = nearestPoint(
                 ghostState.configuration.pos)
         ghostState.scaredTimer = max(0, timer - 1)
+        ghostState.respawnTimer = max(0, ghostState.respawnTimer - 1)
     decrementTimer = staticmethod(decrementTimer)
 
     def checkDeath(state, agentIndex):
@@ -447,11 +452,15 @@ class GhostRules:
         if agentIndex == 0:  # Pacman just moved; Anyone can kill him
             for index in range(1, len(state.data.agentStates)):
                 ghostState = state.data.agentStates[index]
+                if ghostState.respawnTimer > 0:
+                    continue
                 ghostPosition = ghostState.configuration.getPosition()
                 if GhostRules.canKill(pacmanPosition, ghostPosition):
                     GhostRules.collide(state, ghostState, index)
         else:
             ghostState = state.data.agentStates[agentIndex]
+            if ghostState.respawnTimer > 0:
+                return
             ghostPosition = ghostState.configuration.getPosition()
             if GhostRules.canKill(pacmanPosition, ghostPosition):
                 GhostRules.collide(state, ghostState, agentIndex)
@@ -462,6 +471,7 @@ class GhostRules:
             state.data.scoreChange += 200
             GhostRules.placeGhost(state, ghostState)
             ghostState.scaredTimer = 0
+            ghostState.respawnTimer = GhostRules.RESPAWN_DELAY
             # Added for first-person
             state.data._eaten[agentIndex] = True
         else:
@@ -540,6 +550,8 @@ def readCommand(argv):
                       help=default('Zoom the size of the graphics window'), default=1.0)
     parser.add_option('-f', '--fixRandomSeed', action='store_true', dest='fixRandomSeed',
                       help='Fixes the random seed to always play the same game', default=False)
+    parser.add_option('--ghostRespawnDelay', type='int', dest='ghostRespawnDelay',
+                      help=default('Rounds an eaten ghost waits at its start tile before hunting again'), default=0)
     parser.add_option('-r', '--recordActions', action='store_true', dest='record',
                       help='Writes game histories to a file (named by the time they were played)', default=False)
     parser.add_option('--replay', dest='gameToReplay',
@@ -561,6 +573,8 @@ def readCommand(argv):
     args = dict()
 
     # Fix the random seed
+    GhostRules.RESPAWN_DELAY = options.ghostRespawnDelay
+
     if options.fixRandomSeed:
         random.seed('cs188')
 
@@ -611,7 +625,7 @@ def readCommand(argv):
     if options.gameToReplay != None:
         print('Replaying recorded game %s.' % options.gameToReplay)
         import pickle
-        f = open(options.gameToReplay)
+        f = open(options.gameToReplay, 'rb')
         try:
             recorded = pickle.load(f)
         finally:
@@ -700,7 +714,7 @@ def runGames(layout, pacman, ghosts, display, numGames, record, numTraining=0, c
             import pickle
             fname = ('recorded-game-%d' % (i + 1)) + \
                 '-'.join([str(t) for t in time.localtime()[1:6]])
-            f = file(fname, 'w')
+            f = open(fname, 'wb')
             components = {'layout': layout, 'actions': game.moveHistory}
             pickle.dump(components, f)
             f.close()

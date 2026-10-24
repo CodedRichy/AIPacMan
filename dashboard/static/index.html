@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hunt Table</title>
+<meta name="description" content="Replay and inspect coordinated ghost-team telemetry from recorded Pac-Man games.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 4a12 12 0 1 0 0 24 12 12 0 0 0 0-24zm0 12 10-6a12 12 0 0 1 0 12z' fill='%23e8c34a'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#board">Skip to board</a>
+
+<header class="bar">
+  <h1 class="mark"><span class="mark-dot" aria-hidden="true"></span>Hunt Table <small>ghost-team telemetry</small></h1>
+  <div class="bar-tools">
+    <label class="field"><span>Trace</span>
+      <select id="tracePick" aria-label="Load trace"></select>
+    </label>
+    <details class="rec" id="rec">
+      <summary>Record game</summary>
+      <form id="recForm" class="rec-form">
+        <label class="field"><span>Layout</span>
+          <select name="layout"><option>mediumClassic</option><option>smallClassic</option><option>originalClassic</option><option>contestClassic</option><option>openClassic</option><option>trickyClassic</option><option>capsuleClassic</option><option>minimaxClassic</option></select></label>
+        <label class="field"><span>Ghosts</span>
+          <select name="ghosts"><option>EnhancedCoordinatedGhostTeam</option><option>CoordinatedGhostTeam</option><option>DirectionalGhost</option><option>RandomGhost</option></select></label>
+        <label class="field"><span>Pac-Man</span>
+          <select name="pacman"><option>GreedyAgent</option><option>LeftTurnAgent</option></select></label>
+        <label class="field"><span>Seed</span><input name="seed" type="number" value="1" min="0"></label>
+        <label class="field"><span>Max ticks</span><input name="maxTicks" type="number" value="300" min="10" max="3000"></label>
+        <button type="submit" id="recGo" class="btn solid">Record</button>
+        <output id="recMsg" role="status"></output>
+      </form>
+    </details>
+  </div>
+</header>
+
+<main class="deck">
+  <section class="stage" aria-label="Maze replay">
+    <dl class="metrics" id="metrics" aria-label="Metrics">
+      <div><dt>Score</dt><dd id="mScore">0</dd></div>
+      <div><dt>Tick</dt><dd id="mTick">0<span class="of"> / 0</span></dd></div>
+      <div><dt>Food left</dt><dd id="mFood">0</dd></div>
+      <div><dt>Nearest ghost</dt><dd id="mNear">&ndash;</dd></div>
+      <div><dt>Team spread</dt><dd id="mSpread">&ndash;</dd></div>
+    </dl>
+
+    <div class="board" id="board" tabindex="0" aria-label="Maze. Space plays or pauses, arrow keys step.">
+      <canvas id="maze" aria-hidden="true"></canvas>
+      <p class="empty" id="empty">No trace loaded. Pick one above, or record a game.</p>
+    </div>
+
+    <div class="transport" role="group" aria-label="Playback">
+      <button class="btn" id="bBack" title="Step back (Left)" aria-label="Step back">&#9664;&#9664;</button>
+      <button class="btn solid" id="bPlay" title="Play / pause (Space)" aria-label="Play">Play</button>
+      <button class="btn" id="bFwd" title="Step forward (Right)" aria-label="Step forward">&#9654;&#9654;</button>
+      <div class="scrub">
+        <canvas id="ribbon" aria-hidden="true"></canvas>
+        <input id="scrub" type="range" min="0" max="0" value="0" aria-label="Tick">
+      </div>
+      <label class="speed"><span id="speedLbl">1x</span>
+        <input id="speed" type="range" min="0" max="6" value="2" step="1" aria-label="Playback speed">
+      </label>
+    </div>
+    <p class="cap">Role ribbon: one strip per ghost (colour = role, pale = scared), bottom strip = tactical state.</p>
+  </section>
+
+  <aside class="dispatch" aria-label="Telemetry">
+    <section class="state">
+      <p class="eyebrow">Tactical state</p>
+      <p class="big" id="tState">&ndash;</p>
+      <p class="eyebrow">Macro strategy</p>
+      <p class="mid" id="mStrat">&ndash;</p>
+    </section>
+
+    <section>
+      <p class="eyebrow eyebrow-split"><span>Ghosts</span><span>maze dist to Pac-Man</span></p>
+      <ol class="roster" id="roster"></ol>
+    </section>
+
+    <section>
+      <p class="eyebrow">Layers</p>
+      <div class="layers" id="layers"></div>
+    </section>
+
+    <section class="keys">
+      <p class="eyebrow">Keys</p>
+      <p><kbd>Space</kbd> play &middot; <kbd>&larr;</kbd><kbd>&rarr;</kbd> step (<kbd>Shift</kbd> &times;10) &middot; <kbd>Home</kbd><kbd>End</kbd> &middot; <kbd>[</kbd><kbd>]</kbd> speed &middot; <kbd>1</kbd>&ndash;<kbd>5</kbd> layers &middot; <kbd>T</kbd> trace list</p>
+    </section>
+    <p class="run-meta" id="runMeta"></p>
+  </aside>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
