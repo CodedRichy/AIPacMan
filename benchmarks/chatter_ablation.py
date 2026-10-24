@@ -143,7 +143,19 @@ def main(argv=None):
         for (p, l, c) in cells:
             specs = [{'pacman': p, 'layout': l, 'ghost': cond[c], 'seed': a.seed + i,
                       'max_moves': a.max_moves, 'off': off.get(c, '')} for i in range(a.games)]
-            rs = pool.map(_play, specs, chunksize=1)
+            if p.startswith('Expectimax') and a.games > 3:
+                # Expectimax and all four teams are deterministic: probe 3 seeds, and if they agree
+                # exactly, the other seeds would replay the same game, so reuse it (flagged 'replicated').
+                rs = pool.map(_play, specs[:3], chunksize=1)
+                same = all('score' in r and (r['score'], r['moves']) == (rs[0].get('score'), rs[0].get('moves'))
+                           for r in rs)
+                if same:
+                    for sp in specs[3:]:
+                        rs.append(dict(rs[0], spec=sp, replicated=True))
+                else:
+                    rs += pool.map(_play, specs[3:], chunksize=1)
+            else:
+                rs = pool.map(_play, specs, chunksize=1)
             results[(p, l, c)] = rs
             s = summarize(rs)
             print('%-18s %-16s %-8s n=%d failed=%d score=%s  (%.0fs)' % (

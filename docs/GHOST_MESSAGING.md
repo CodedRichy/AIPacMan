@@ -112,4 +112,88 @@ sequenceDiagram
 log, not a script: `tests/test_chatter.py` checks every message in telemetry has an id in the bus log,
 and each type has an A/B test showing the receiver decides differently with and without it.)
 
-ABLATION_PLACEHOLDER
+## Ablation
+
+Command (about 1 minute; Expectimax cells are deterministic and replay one game):
+
+```
+tools/capped -m 4G -- python3 benchmarks/chatter_ablation.py --games 100
+```
+
+mediumClassic and originalClassic, `GreedyAgent` and `ExpectimaxAgent` depth 2, seeds 7000-7099, fog radius 6,
+Pac-Man move cap 1500. Raw per-game data: `benchmarks/results/chatter_ablation.json`. **Lower Pac-Man score
+and shorter kill time = better ghosts.** "d vs silent" is the paired difference of Pac-Man's score
+(chatter minus silent, same seeds); negative means communication helped the ghosts. CIs are
+1.96 * sd / sqrt(n). Kill time is the Pac-Man move on which he died, averaged over games where he died
+("-" = never killed within the cap). Note `mediumClassic` has only **2** ghosts; `originalClassic` has 4.
+
+| Pac-Man | Layout | Ghosts | n (failed) | Score mean +/- 95% CI | d vs silent (paired) | Kill time +/- CI | Win % | Distinct scores | Msgs/game | Msgs/move | ms/decision |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| GreedyAgent | mediumClassic | full | 100 (0) | -257 +/- 49 | -33 +/- 56 | 25.4 +/- 4.7 | 0 | 35 | 0 | 0.00 | 0.10 |
+| GreedyAgent | mediumClassic | silent | 100 (0) | -224 +/- 63 | - | 27.6 +/- 6.0 | 0 | 36 | 0 | 0.00 | 0.08 |
+| GreedyAgent | mediumClassic | chatter | 100 (0) | -261 +/- 50 | -36 +/- 32 | 25.3 +/- 5.2 | 0 | 35 | 29 | 1.18 | 0.09 |
+| GreedyAgent | mediumClassic | lossy | 100 (0) | -231 +/- 56 | -7 +/- 36 | 28.0 +/- 5.3 | 0 | 38 | 33 | 1.17 | 0.08 |
+| GreedyAgent | originalClassic | full | 100 (0) | -58 +/- 83 | -93 +/- 98 | 37.8 +/- 6.3 | 0 | 37 | 0 | 0.00 | 0.24 |
+| GreedyAgent | originalClassic | silent | 100 (0) | 35 +/- 83 | - | 76.0 +/- 13.6 | 0 | 58 | 0 | 0.00 | 0.15 |
+| GreedyAgent | originalClassic | chatter | 100 (0) | 49 +/- 74 | +14 +/- 93 | 66.2 +/- 8.4 | 0 | 69 | 99 | 1.66 | 0.12 |
+| GreedyAgent | originalClassic | lossy | 100 (0) | 28 +/- 76 | -7 +/- 77 | 73.2 +/- 10.9 | 0 | 64 | 121 | 1.85 | 0.13 |
+| ExpectimaxAgent:2 | mediumClassic | full | 100 (0) | 153 +/- 0 | +723 +/- 0 | 37.0 +/- 0.0 | 0 | 1 | 0 | 0.00 | 0.19 |
+| ExpectimaxAgent:2 | mediumClassic | silent | 100 (0) | -570 +/- 0 | - | - | 0 | 1 | 0 | 0.00 | 0.06 |
+| ExpectimaxAgent:2 | mediumClassic | chatter | 100 (0) | 45 +/- 0 | +615 +/- 0 | 45.0 +/- 0.0 | 0 | 1 | 57 | 1.27 | 0.08 |
+| ExpectimaxAgent:2 | mediumClassic | lossy | 100 (0) | 204 +/- 0 | +774 +/- 0 | 86.0 +/- 0.0 | 0 | 1 | 101 | 1.17 | 0.08 |
+| ExpectimaxAgent:2 | originalClassic | full | 100 (0) | -296 +/- 0 | -1400 +/- 0 | 26.0 +/- 0.0 | 0 | 1 | 0 | 0.00 | 0.13 |
+| ExpectimaxAgent:2 | originalClassic | silent | 100 (0) | 1104 +/- 0 | - | 186.0 +/- 0.0 | 0 | 1 | 0 | 0.00 | 0.24 |
+| ExpectimaxAgent:2 | originalClassic | chatter | 100 (0) | 1593 +/- 0 | +489 +/- 0 | 187.0 +/- 0.0 | 0 | 1 | 328 | 1.75 | 0.10 |
+| ExpectimaxAgent:2 | originalClassic | lossy | 100 (0) | 1643 +/- 0 | +539 +/- 0 | 227.0 +/- 0.0 | 0 | 1 | 391 | 1.72 | 0.10 |
+
+Message mix per game (Greedy, originalClassic, chatter): CLAIM 70.5, SPOTTED 14.9, YIELD 6.6, SCARED 5.0,
+WARN_CAPSULE 0.9, REQUEST_SUPPORT 0.4, ACK 0.3, HANDOFF 0. Cost: 0.09-0.13 ms per ghost decision with the
+bus on, below the full-information team (0.10-0.24 ms) because the fog teams do no per-tick role sort.
+
+### What the numbers say
+
+The hypothesis "fog hurts, communication recovers most of it" is only partly supported, and not reliably.
+
+* **Greedy, mediumClassic (2 ghosts):** fog costs little (silent -224 vs full -257, inside the noise).
+  Chatter reaches -261, i.e. the full-information level, a paired gain of 36 +/- 32 points over silent
+  (marginal). Lossy chatter gives back most of it (-7 +/- 36).
+* **Greedy, originalClassic (4 ghosts):** fog hurts (+93 +/- 98 against full, kills take 76 moves instead of 38).
+  Chatter does **not** recover it: +14 +/- 93 against silent, kill time 66 vs 76 (inside the CI).
+* **Expectimax depth 2:** all teams are deterministic, so each cell is one game, not 100 (the "Distinct
+  scores = 1" column; the CI of 0 is not evidence). On mediumClassic silent ghosts never kill him in
+  1500 moves while chatter kills at move 45 (full: 37), which is the one clear communication win.
+  On originalClassic chatter is no better than silent (kills at 187 vs 186, Pac-Man score higher).
+
+Overall: communication helps where the map is small and the team is two ghosts, and does nothing
+measurable on the 4-ghost map where fog hurts most. Three effects are reasonable explanations but were
+**not** isolated: (1) with radius 6 plus line of sight, usually 2-3 ghosts already see Pac-Man when any
+does, so beliefs mostly agree and SPOTTED adds information only for the far ghost; (2) role choice is
+the same rank-by-distance rule in all conditions, so CLAIM mainly confirms what the rank rule already
+gives; (3) HANDOFF never fired, because the rank rule already makes the nearest ghost the chaser.
+
+### A bug the ablation found
+
+The first version of `YIELD` replaced a contested pincer tile by any tile >= 3 from the winner's. On
+mediumClassic/Greedy that made chatter *worse* than silent (-150 vs -224, +74 +/- 82). Leaving single
+message types out (`--conditions chatter-noYIELD`, env `GHOST_MSG_OFF=YIELD,...`) isolated it: without
+YIELD chatter scored -258. YIELD now fires only when two ghosts target the identical tile and the
+loser picks the nearest alternative within 3 tiles that keeps it near Pac-Man. After that fix, the
+leave-one-out runs (100 games) showed no other type hurting: no REQUEST_SUPPORT/ACK -265, no
+WARN_CAPSULE/SCARED -254, no CLAIM -235, no HANDOFF -258 (all with YIELD off, vs -258 with all of them,
+all within CI), i.e. the other types were neutral on this cell. The leave-one-out runs were made
+before the final fix; only YIELD changed afterward.
+
+## Honest limits
+
+* Expectimax cells are a single deterministic game each; no statistical claim can be made from them.
+* Fog parameters (radius 6, belief freshness 3, TTLs 8/6/4) were set once and not tuned; a smaller
+  radius would make communication matter more, and was not tested.
+* Teammate positions are public. Real ghosts with radios would not know each other's tiles either.
+* HANDOFF is effectively redundant with the rank rule; YIELD is the weakest message (the winner only
+  locks its target); WARN_CAPSULE and SCARED are rare (about 1 and 5 per game).
+* `mediumClassic` has 2 ghosts, so REQUEST_SUPPORT/BLOCKER/SWEEPER roles barely exist there.
+* The Pac-Man score mixes food and survival time; against Expectimax, a long game with few kills can
+  look good for Pac-Man for reasons unrelated to ghost quality. Kill time is the cleaner signal.
+* The silent control still avoids stepping on teammates and shares positions; it is a strong control,
+  which makes "communication helps" harder to show, deliberately.
+
