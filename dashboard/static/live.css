@@ -1,0 +1,70 @@
+/* Live view. Same plotting-table language as style.css; adds the commander ticker,
+   personality inks and a few controls. All motion is under 2 s, eased, no bounce. */
+:root {
+  --g-blinky: var(--role-chaser);
+  --g-pinky:  var(--role-interceptor);
+  --g-inky:   var(--role-blocker);
+  --g-clyde:  var(--role-capsule_guard);
+  --cold:     oklch(0.74 0.035 235);       /* scared ghosts: desaturated, cold hatch */
+  --cold-dim: oklch(0.5 0.03 235);
+  --order:    oklch(0.86 0.12 95);         /* commander order line */
+}
+
+.metrics dd.small { font-size: var(--step-1); line-height: 1.5; letter-spacing: -0.01em; white-space: nowrap; }
+#mChain { color: var(--cold); }
+
+.board { aspect-ratio: 28 / 31; max-height: 78dvh; margin-inline: auto; width: 100%; }
+.board:focus-visible { outline-offset: -2px; }
+.banner {
+  position: absolute; inset: auto 0 12% 0; margin: 0 auto; width: max-content; max-width: 90%; text-align: center;
+  font: 700 var(--step-2)/1.1 var(--font-ui); letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 0.5rem 1rem; background: oklch(0.14 0.012 195 / 0.86); border-block: 1px solid var(--rule);
+  animation: fade-in 220ms var(--ease);
+}
+.banner[hidden] { display: none; }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+.live-transport { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+.live-transport .speed { grid-template-columns: 3.4rem minmax(6rem, 1fr); }
+.btn[aria-pressed="false"] { color: var(--ink-faint); }
+.btn[aria-pressed="true"] { border-color: var(--ink-dim); background: var(--surface-2); }
+
+.dpad { display: none; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; }
+.dpad .btn { min-height: 3rem; font-size: var(--step-1); }
+@media (pointer: coarse) { .dpad { display: grid; } }
+
+/* ---------- commander ticker ---------- */
+.cmd[hidden] { display: none; }
+.ticker {
+  list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; min-height: 11.5rem; max-height: 17rem; overflow: hidden;
+  border-block: 1px solid var(--rule); font: 400 var(--step-0)/1.35 var(--font-data);
+  mask-image: linear-gradient(to bottom, #000 78%, transparent);
+}
+.ticker li {
+  display: grid; grid-template-columns: 3.4rem 2.6rem 1fr; gap: 0 0.4rem; padding: 0.28rem 0; border-top: 1px solid var(--rule-soft);
+  animation: tick-in 180ms var(--ease);
+}
+.ticker li:first-child { border-top: 0; }
+.ticker time { color: var(--ink-faint); font-size: var(--step--1); align-self: center; font-variant-numeric: tabular-nums; }
+.ticker .src { font-weight: 700; color: var(--c, var(--ink)); }
+.ticker .txt { color: var(--ink); overflow-wrap: anywhere; }
+.ticker li[data-kind="state"] .txt { color: var(--order); letter-spacing: 0.06em; }
+.ticker .src::after { content: " >"; color: var(--ink-faint); font-weight: 400; }
+.ticker .none { color: var(--ink-faint); padding: 0.6rem 0; }
+@keyframes tick-in { from { opacity: 0; transform: translateY(-0.35rem); } to { opacity: 1; transform: none; } }
+
+.roster .glyph { background: var(--c, var(--role-none)); }
+.roster li[data-mode="frightened"] .glyph {
+  background: repeating-linear-gradient(135deg, transparent 0 2px, var(--cold) 2px 3px); border: 1.5px dashed var(--cold); color: var(--cold);
+}
+.roster li[data-mode="eyes"] .glyph { background: transparent; border: 1.5px solid var(--ink-faint); color: var(--ink); }
+.roster li[data-mode="house"] .glyph, .roster li[data-mode="exit"] .glyph { opacity: 0.6; }
+.rmode { font: 400 var(--step--1) var(--font-data); color: var(--ink-dim); text-transform: uppercase; letter-spacing: 0.06em; text-align: right; }
+
+@media (max-width: 40rem) {
+  .live-transport { grid-template-columns: auto 1fr; }
+  .live-transport .speed { grid-column: 1 / -1; order: 5; grid-template-columns: 3.4rem 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ticker li, .banner { animation: none !important; }
+}
