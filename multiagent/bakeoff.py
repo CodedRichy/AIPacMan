@@ -17,6 +17,7 @@ import random
 import sys
 import time
 import multiprocessing as mp
+import resource
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -36,6 +37,13 @@ DEV_AGENTS = ['GreedyAgent', 'ExpectimaxAgent', 'AlphaBetaAgent']
 HOLD_LAYOUTS = ['trickyClassic']
 HOLD_AGENTS = ['MinimaxAgent']
 MAX_ROUNDS = 1000  # games still running after this many rounds are cut off (counted as not-win)
+
+
+AS_LIMIT = 2 * 1024 ** 3  # per-worker address-space cap: a runaway worker dies alone
+
+
+def initWorker():
+    resource.setrlimit(resource.RLIMIT_AS, (AS_LIMIT, AS_LIMIT))
 
 
 def teamClass(name):
@@ -114,7 +122,8 @@ def playOne(task):
     return dict(team=team, agent=agent, layout=layoutName, seed=seed,
                 score=game.state.getScore(), win=bool(game.state.isWin()),
                 cutoff=bool(game.cutoff), rounds=rounds,
-                ms=1000.0 * TimedGhost.clock[0] / rounds)
+                ms=1000.0 * TimedGhost.clock[0] / rounds,
+                rss_mb=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0)
 
 
 def stats(xs):
@@ -139,13 +148,27 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--phase', choices=['dev', 'holdout'], default='dev')
     ap.add_argument('--games', type=int, default=40)
-    ap.add_argument('--workers', type=int, default=max(1, (os.cpu_count() or 2) - 1))
+    ap.add_argument('--jobs', '--workers', dest='workers', type=int, default=4,
+                    help='worker processes (default 4; never raise on a shared machine)')
     ap.add_argument('--teams', default=','.join(TEAMS))
     ap.add_argument('--layouts', default=None)
     ap.add_argument('--agents', default=None)
     ap.add_argument('--out', default=None)
     ap.add_argument('--seed0', type=int, default=0, help='first seed (tune on 1000+, report on 0..)')
+    ap.add_argument('--merge', default=None, help='comma list of result JSONs to re-report (no games run)')
     args = ap.parse_args()
+    if args.merge:
+        res = []
+        for fn in args.merge.split(','):
+            with open(fn, encoding='utf-8') as f:
+                res += json.load(f)
+        teams = [t for t in TEAMS if any(r['team'] == t for r in res)]
+        cells = []
+        for r in res:
+            if (r['layout'], r['agent']) not in cells:
+                cells.append((r['layout'], r['agent']))
+        report(res, teams, cells)
+        return
 
     teams = args.teams.split(',')
     if args.phase == 'dev':
@@ -163,7 +186,7 @@ def main():
     # slowest first for load balance
     tasks.sort(key=lambda t: (t[1] == 'GreedyAgent', t[1] == 'MinimaxAgent'))
     t0 = time.time()
-    with mp.Pool(args.workers) as pool:
+    with mp.Pool(min(args.workers, 4), initializer=initWorker, maxtasksperchild=200) as pool:
         res = pool.map(playOne, tasks, chunksize=1)
     print('# %d games in %.0fs' % (len(res), time.time() - t0), file=sys.stderr)
     out = args.out or ('bakeoff_%s.json' % args.phase)
