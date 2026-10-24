@@ -1,62 +1,132 @@
 # AI Pac-Man
 
-Built on the Berkeley CS188 Pac-Man framework. The original part is phase 3: ghosts that work as a coordinated team instead of chasing independently. For students and anyone curious about multi-agent search.
+Built on the Berkeley CS188 Pac-Man framework. The original part is the ghosts: a team that coordinates (roles, prediction, pincer, messaging) instead of chasing independently, plus an arcade-style browser front end that lets you play against them and see what they are doing. For students and anyone curious about multi-agent search.
 
-## What it does
+## How to run
 
-- Search (phase 1): DFS, BFS, UCS and A*, a corners problem and food-search heuristics. `PENDING_TASKS.md` records all search tests passing.
-- Multi-agent (phase 2): reflex, minimax, alpha-beta and expectimax Pac-Man agents with a custom evaluation function (25 of 25 tests per `PENDING_TASKS.md`).
-- Ghost coordination (phase 3): a `GhostCoordinator` in `multiagent/coordinatedGhostAgents.py` ranks ghosts by distance to Pac-Man and gives them roles. The nearest ghost is the chaser. The next ones are an interceptor aimed at Pac-Man's predicted position, a blocker sent to a choke point, and a sweeper.
-- `multiagent/enhancedGhostAgents.py` subclasses the coordinator and adds velocity-based trajectory prediction, a pincer target for the interceptor, tile reservation, a shared-perception layer, a tactical state machine (SCATTER, DEFEND_CAPSULE, TRAP_AMBUSH, COORDINATED_HUNT), dynamic strategy switching on food remaining (EARLY_SPREAD, MID_PRESSURE, ENDGAME_COLLAPSE) and scared-ghost scatter. Details and the places where the code does less than its comments say are in `docs/ARCHITECTURE.md`.
-- Tooling: a headless benchmark (`benchmarks/run_benchmark.py`), a profiler (`benchmarks/profile_ghosts.py`), integration tests (`tests/test_integration.py`), six demo layouts (`multiagent/layouts/demo_*.lay`, see `docs/DEMO_LAYOUTS.md`) and a not-yet-wired tunable-parameter module (`multiagent/ghostConfig.py`, see `docs/CONFIG_WIRING.md`).
+You need Python 3 (tested on 3.14). The browser version needs nothing else. The old terminal window needs `tkinter`.
 
-## Status
-
-Phases 1 to 4 are implemented and checked off in `PENDING_TASKS.md`. Implemented is not the same as effective. Measured against `GreedyAgent` on `mediumClassic` (200 games per team, `benchmarks/BASELINE.md`), a lower Pac-Man score means a better ghost team:
-
-| Ghost team | Pac-Man avg score |
-|---|---|
-| CoordinatedGhostTeam (base roles) | about -225 |
-| DirectionalGhost (course baseline) | about -103 |
-| EnhancedCoordinatedGhostTeam | about -14 |
-| RandomGhost | about +61 |
-
-The enhanced team, which has the tactical state machine, strategy switching, pincer and reservation, is a weaker hunter than the plain base coordinator and than the course's `DirectionalGhost`. So the phase 4 features are not an improvement as built, and the numbers are negative for them. Instrumented runs show why in part: path reservation never fires (the table is cleared whenever any ghost has moved), and the TRAP_AMBUSH state is the most common state but changes no behavior. Small samples mislead here: a 20-game run gave very different averages from the 200-game run because score variance is large.
-
-Phase 5 (a FastAPI and WebSocket backend, a canvas dashboard) is being built separately and is not part of this branch. Phase 6: integration tests, a benchmark harness, profiling, demo layouts and the config module exist; the config module is not connected to the ghost code. The course files are unmodified framework code.
-
-## Stack
-
-Python 3 and the CS188 Pac-Man framework. The benchmark, tests and config module use only the standard library.
-
-## Benchmarks and tests
+### 1. Play in the browser (recommended)
 
 From the repo root:
 
 ```bash
-python3 benchmarks/run_benchmark.py --games 20 --pacman GreedyAgent --layouts mediumClassic
-python3 benchmarks/run_benchmark.py --quick
-python3 benchmarks/profile_ghosts.py --games 5
-python3 -m unittest discover -s tests -v
+python3 dashboard/live.py --port 8765
 ```
 
-## Run it
+Then open <http://127.0.0.1:8765/play>. The server only listens on your own machine and loads nothing from the internet.
+
+- **Arrow keys or W/A/S/D** steer Pac-Man. **Enter** confirms, **Esc** goes back, number keys jump to a menu item.
+- **PLAY** asks you to pick a mode:
+  - **CLASSIC**: Berkeley's original ghosts and rules. The baseline.
+  - **OUR GHOSTS**: same game against our coordinated ghost team. Try to beat them.
+  - **ARCADE**: closer to the real Pac-Man: four ghost personalities, scatter and chase phases, real speeds, 3 lives.
+  - **SEE HOW THEY THINK**: an AI Pac-Man against our ghosts with the thinking overlay on.
+  - **VERSUS**: the same AI Pac-Man and seed against the stock ghosts and ours, side by side, with a verdict built from the two real results. `N` tries a new seed, `M` changes the maze.
+- **WATCH** lets you pick the AI (greedy, minimax, alpha-beta, expectimax). **LEARN** is the project map, one level per phase, with demos and real numbers (level 1 has a search visualiser). **SCORES** ranks the ghost teams from the newest benchmark. **MORE** has replays, options and about.
+- **T** switches "show the thinking" on or off (ghost roles, targets, planned paths and the Commander's orders). **L** opens the full layers panel. **C** hides the Commander.
+
+### 2. Run the classic terminal game
 
 Search agents, from the repo root:
 
 ```bash
-python pacman.py
-python pacman.py -l tinyMaze -p SearchAgent
-python pacman.py -l mediumMaze -p SearchAgent -a fn=bfs
-python pacman.py -l bigMaze -z .5 -p SearchAgent -a fn=astar,heuristic=manhattanHeuristic
+python3 pacman.py
+python3 pacman.py -l tinyMaze -p SearchAgent
+python3 pacman.py -l mediumMaze -p SearchAgent -a fn=bfs
+python3 pacman.py -l bigMaze -z .5 -p SearchAgent -a fn=astar,heuristic=manhattanHeuristic
 ```
 
-Coordinated ghosts, from inside `multiagent/` (the usage comment at the top of `enhancedGhostAgents.py`):
+Ghost teams, from inside `multiagent/`:
 
 ```bash
-python pacman.py -p GreedyAgent -g EnhancedCoordinatedGhostTeam -l mediumClassic
-python pacman.py -p KeyboardAgent -g EnhancedCoordinatedGhostTeam -l mediumClassic -n 1
+cd multiagent
+python3 pacman.py -p KeyboardAgent -g EnhancedCoordinatedGhostTeam -l originalClassic   # you play
+python3 pacman.py -p GreedyAgent -g CoordinatedGhostTeam -l mediumClassic                # AI plays
+python3 pacman.py --arcade -l originalClassic -g ArcadeGhostTeam -p GreedyAgent          # arcade rules
+python3 pacman.py -p ExpectimaxAgent -a depth=2 -g DirectionalGhost -l smallClassic      # AI vs stock ghosts
+python3 pacman.py -p GreedyAgent -g EnhancedCoordinatedGhostTeam -l mediumClassic -n 20 -q -f   # 20 games, no window, fixed seed
 ```
+
+Other ghost teams you can pass to `-g`: `DirectionalGhost` and `RandomGhost` (course), `VoronoiGhostTeam`, `ChatterGhostTeam`, `SilentFogGhostTeam`, `LossyChatterGhostTeam`. Add `-r` to record a game (saved as `recorded-game-*`), and `--replay <file>` to watch it again.
+
+### 3. Check that everything works
+
+From the repo root:
+
+```bash
+python3 autograder.py --no-graphics                  # search: expect 26/25
+(cd multiagent && python3 autograder.py --no-graphics)   # multi-agent: expect 25/25
+python3 -m unittest discover -s tests                # integration and messaging tests
+python3 dashboard/tests/test_dashboard.py            # dashboard tests (also test_live.py, test_arcade.py)
+python3 multiagent/tests_arcade.py                   # arcade rule tests
+```
+
+### 4. Benchmarks
+
+```bash
+python3 benchmarks/run_benchmark.py --quick
+python3 benchmarks/run_benchmark.py --games 200 --pacman GreedyAgent --layouts mediumClassic
+python3 benchmarks/chatter_ablation.py --games 100   # does ghost messaging help?
+cd multiagent && python3 bakeoff.py --phase dev --games 40 --jobs 4   # about 35 minutes
+```
+
+Results go to `benchmarks/results/`. Lower Pac-Man score means a stronger ghost team.
+
+### Keep a runaway job from taking the desktop down
+
+Early on, a leaking search job exhausted RAM and the kernel killed VS Code. The leak is fixed, but long benchmarks should still run under a memory cap:
+
+```bash
+tools/capped -m 4G -- python3 benchmarks/run_benchmark.py --games 200
+```
+
+A job that goes over its cap dies alone.
+
+## What it does
+
+- **Search (phase 1):** DFS, BFS, UCS and A*, a corners problem and food-search heuristics.
+- **Multi-agent (phase 2):** reflex, minimax, alpha-beta and expectimax Pac-Man agents with a custom evaluation function.
+- **Ghost coordination (phases 3 and 4):** `multiagent/coordinatedGhostAgents.py` and `multiagent/enhancedGhostAgents.py`. A shared coordinator gives ghosts roles (chaser, interceptor, blocker, sweeper), predicts Pac-Man, sets a pincer target, claims tiles per tick, and runs a tactical state machine with scared-ghost fleeing. Details: `docs/ARCHITECTURE.md`.
+- **Dashboard (phase 5):** record-and-replay dashboard in `dashboard/` (stdlib server with Server-Sent Events).
+- **Arcade mode and the Commander (phase 8):** `--arcade` adds eyes returning to the ghost house, scatter and chase timers, 200/400/800/1600 scoring and four ghost personalities (`docs/ARCADE_MODE.md`). The Commander is a stationary crowned ghost that shows the coordinator's real orders; it is a display element, not a game agent.
+- **Arcade front end (phases 9 and 12):** the `/play` interface above.
+- **Ghost messaging (phase 10):** ghosts pass real messages on a bus under partial visibility ("fog") (`docs/GHOST_MESSAGING.md`).
+- **Bake-off (phase 7):** other ghost designs compared (`docs/BAKEOFF.md`).
+
+## Results (measured)
+
+GreedyAgent on `mediumClassic`, 200 games per team, `benchmarks/BASELINE.md`. Lower Pac-Man average score means a stronger ghost team:
+
+| Ghost team | Pac-Man avg score | Avg moves until caught |
+|---|---|---|
+| EnhancedCoordinatedGhostTeam | -284 | 22 |
+| CoordinatedGhostTeam | -273 | 23 |
+| DirectionalGhost (course baseline) | -103 | 58 |
+| RandomGhost | +61 | 139 |
+
+Both coordinated teams beat the course's ghosts by a wide margin against this Pac-Man, and the two are statistically tied. Honest limits:
+
+- Against expectimax Pac-Man the ghosts are still weak: it grabs a capsule and hunts the scared ghosts, and the score stays above zero on `mediumClassic`.
+- Ghost messaging does not reliably help. The gain with 2 ghosts is marginal and there is none with 4. It is a demonstration of coordination, not the default team.
+- The Voronoi team is clearly better only on `originalClassic` and worse on `contestClassic`. `CoordinatedGhostTeam` stays the default (`docs/BAKEOFF.md`).
+- Pac-Man agents are only as strong as the course reference; the ghost side is where the new work is.
+- Nothing learns from play yet. `docs/PHASE11_LEARNING.md` is a plan for ghosts that learn a player's habits.
+
+`PENDING_TASKS.md` has the per-phase status and what is verified versus reported.
+
+## Repo map
+
+| Path | What is there |
+|---|---|
+| `search.py`, `searchAgents.py` | Phase 1 search |
+| `multiagent/` | Phase 2 agents, ghost teams, arcade rules, bake-off, demo layouts |
+| `dashboard/` | Server, recorder, arcade front end (`static/`), design notes in `DESIGN.md` |
+| `benchmarks/`, `tests/` | Benchmark harness, profiler, integration and messaging tests |
+| `docs/` | Architecture, arcade mode, ghost messaging, bake-off, config wiring, demo layouts |
+| `tools/capped` | Runs a command under a hard memory cap |
+
+The repo currently has the framework files at the root and again inside `multiagent/`; reorganising that is on the to-do list. `multiagent/ghostConfig.py` (tunable parameters) is written and tested but not yet wired into the ghost code.
 
 ## License
 
