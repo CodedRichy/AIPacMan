@@ -109,6 +109,27 @@ class BrowserKeyboardAgent(Agent):
         return move
 
 
+class SnapGhost(Agent):
+    """Lets Berkeley-style ghost teams (which assume whole-tile positions) play under arcade rules:
+    they decide on a copy of the state with every agent snapped to its nearest tile; the answer is used
+    when it is legal, otherwise the first legal action."""
+
+    def __init__(self, inner):
+        self.inner, self.index = inner, inner.index
+
+    def getAction(self, state):
+        from game import Configuration
+        legal = state.getLegalActions(self.index)
+        if len(legal) <= 1:
+            return legal[0] if legal else Directions.STOP
+        snap = state.deepCopy()
+        for a in snap.data.agentStates:
+            x, y = a.configuration.pos
+            a.configuration = Configuration((int(x + 0.5), int(y + 0.5)), a.configuration.direction)
+        act = self.inner.getAction(snap)
+        return act if act in legal else legal[0]
+
+
 class Paced(Agent):
     """Wraps an AI Pac-Man so a live session paces it like the keyboard agent (attract mode)."""
 
@@ -405,6 +426,8 @@ def build_game(params, sink, live):
         if mod is not None and hasattr(mod, '_coordinator_instance'):
             mod._coordinator_instance = None
         ghosts = [ghost_cls(i + 1) for i in range(lay.getNumGhosts())]
+        if params['arcade'] and not params['ghosts'].startswith('Arcade'):
+            ghosts = [SnapGhost(g) for g in ghosts]
         if params['pacman'] == 'browser':
             agent = BrowserKeyboardAgent(sink if live else None)
         else:

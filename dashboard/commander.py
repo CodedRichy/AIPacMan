@@ -47,8 +47,11 @@ def read_coordinator(c):
             macro = t.get('macroStrategy', t.get('currentStrategy', macro))
             if isinstance(t.get('roles'), dict):
                 roles = {int(k): v for k, v in t['roles'].items()}
-            if isinstance(t.get('assignedTargets'), dict):
-                targets = {int(k): v for k, v in t['assignedTargets'].items()}
+            for key in ('assignedTargets', 'targets'):      # EnhancedCoordinatedGhostTeam uses 'targets'
+                if isinstance(t.get(key), dict):
+                    targets = {int(k): v for k, v in t[key].items()}
+            if isinstance(t.get('scaredTimers'), dict) and not modes:
+                modes = {int(k): ('frightened' if v > 0 else 'active') for k, v in t['scaredTimers'].items()}
             if isinstance(t.get('modes'), dict):
                 modes = {int(k): v for k, v in t['modes'].items()}
     return dict(tactical=tactical, macro=macro, roles=roles, targets=targets, modes=modes,

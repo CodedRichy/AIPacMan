@@ -442,6 +442,7 @@ def pacApply(state, action):
         raise Exception("Illegal action " + str(action))
     s = state.data.agentStates[0]
     A = s.arcade
+    A['events'] = ()                                # events describe one round only
     F = CFG.frames
     used = min(A['stall'], F)                       # Dossier: a dot costs 1 frame, an energizer 3
     A['stall'] -= used

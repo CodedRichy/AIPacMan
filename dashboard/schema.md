@@ -52,3 +52,16 @@ the ghost's current tile to its target, computed by the recorder.
 ## SSE (`/stream`)
 Events: `header` (header plus `frames` count), `frame` (id = tick), `end`.
 Query: `trace`, `speed` (0.1 to 64, 1x = 8 ticks/s), `start` (first tick).
+
+## Schema v2 (written by `live.py`, additive)
+Header `schema: 2` adds `arcade` (bool), `live`, `tickRate`, and for arcade games `level`, `framesPerRound`
+and `house` (`y,x0,x1,doorY,doorXs,exitTile`, or null). Frames add `schema: 2`, `dt` (seconds per tick) and:
+
+| field | note |
+|---|---|
+| pacman.fpos, ghosts[].fpos | exact `[x, y]` in tiles (fractional between tile centres); `pos` stays the nearest tile, so v1 readers keep working |
+| ghosts[].mode | `active`, `frightened`, `eyes`, `house`, `exit` (non-arcade: `active`/`frightened`) |
+| arcade | null, or `{level, mode (scatter/chase/frightened), phase, phaseLeftSec, frightLeftSec, combo, dots, elroy, ghostModes[], events[]}`; events are `["mode","chase"]`, `["fright",secs]`, `["fright_end",0]`, `["eaten",ghost,points]` for that tick only |
+| commander | `{source: "getTelemetry"\|"attributes"\|"none", messages: [{id,tick,ghost (0 = all),src,text,target,kind}]}` new orders this tick, derived from coordinator state diffs |
+
+Live SSE (`/live/stream`) events: `header`, `frame`, `status` (`state`, `paused`, `tickRate`), `end`.

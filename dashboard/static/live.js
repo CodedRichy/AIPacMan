@@ -141,7 +141,7 @@
   function panels(f) {
     const h = S.header;
     $('mScore').textContent = f.score;
-    $('mFood').textContent = f.food.length + ' / ' + h.foodTotal;
+    $('mFood').innerHTML = `${f.food.length}<span class="of"> / ${h.foodTotal}</span>`;
     $('mTick').textContent = f.tick;
     const a = f.arcade;
     if (a) {
@@ -363,12 +363,15 @@
     const header = recs[0], frames = recs.filter((r) => r.type === 'frame');
     if (header.schema < 2) { $('newMsg').textContent = 'That trace is schema v1: use Replay v1.'; setSource('live'); return; }
     onHeader(header); S.trace = frames; S.tracePos = 0; S.paused = false;
-    $('bPause').textContent = 'Pause';
+    const q = new URLSearchParams(location.search), at = Math.max(0, +(q.get('t') || 0));   // ?t=120&pause=1 opens at a tick
+    if (at > 1) { for (let i = Math.max(0, at - 24); i < at; i++) onFrame(frames[i]); S.tracePos = at; }
+    if (q.get('pause') === '1') S.paused = true;
+    $('bPause').textContent = S.paused ? 'Resume' : 'Pause';
     clearInterval(S.traceTimer);
     let acc = performance.now();
     S.traceTimer = setInterval(() => {
       const now = performance.now();
-      if (S.paused) { acc = now; return; }
+      if (S.paused) { acc = now; S.t0 = now; return; }
       const step = 1000 / S.tickRate;
       while (acc <= now && S.tracePos < frames.length) { onFrame(frames[S.tracePos++]); acc += step; }
       if (S.tracePos >= frames.length) { clearInterval(S.traceTimer); setBanner('End of trace'); }
