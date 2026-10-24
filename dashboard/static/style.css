@@ -12,7 +12,7 @@
   --rule-soft: oklch(0.27 0.014 195);
   --ink:       oklch(0.92 0.02 95);
   --ink-dim:   oklch(0.7 0.02 110);
-  --ink-faint: oklch(0.64 0.018 130);
+  --ink-faint: oklch(0.68 0.018 130);   /* >= 5.5:1 on every surface (was 4.76 on surface-2) */
 
   /* actors */
   --pac:       oklch(0.87 0.165 95);
@@ -21,6 +21,8 @@
   --role-blocker:     oklch(0.8 0.12 200);
   --role-sweeper:     oklch(0.8 0.17 145);
   --role-capsule_guard: oklch(0.78 0.16 60);
+  --role-blinky: var(--role-chaser); --role-pinky: var(--role-interceptor);
+  --role-inky: var(--role-blocker);  --role-clyde: var(--role-capsule_guard);   /* arcade personalities */
   --role-none:        oklch(0.72 0.02 110);
   --scared:    oklch(0.82 0.05 250);
   --food:      oklch(0.78 0.05 95);
@@ -88,6 +90,14 @@ select, input[type=number] {
 }
 .rec-form .field:nth-child(2), .rec-form .field:nth-child(3) { grid-column: 1 / -1; }
 .rec-form output { grid-column: 1 / -1; font: 400 var(--step--1) var(--font-data); color: var(--ink-dim); min-height: 1.2em; }
+
+.tabs { display: flex; gap: 0.25rem; align-self: end; }
+.tabs a {
+  font: 400 var(--step--1) var(--font-data); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-dim);
+  text-decoration: none; padding: 0.55rem 0.7rem; border-bottom: 2px solid transparent; min-height: 2.4rem;
+}
+.tabs a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--pac); }
+.tabs a:hover { color: var(--ink); }
 
 /* ---------- deck: asymmetric, board dominant ---------- */
 .deck {

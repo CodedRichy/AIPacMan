@@ -5,7 +5,7 @@
 (function () {
   const $ = (id) => document.getElementById(id);
   const SPEEDS = [0.25, 0.5, 1, 2, 4, 8, 16];
-  const ROLE_GLYPH = { chaser: 'C', interceptor: 'I', blocker: 'B', sweeper: 'S', capsule_guard: 'G' };
+  const ROLE_GLYPH = { chaser: 'C', interceptor: 'I', blocker: 'B', sweeper: 'S', capsule_guard: 'G', blinky: 'B', pinky: 'P', inky: 'I', clyde: 'C' };
   const LAYERS = [
     ['paths', 'Paths', true], ['targets', 'Targets', true], ['reserved', 'Reserved', true],
     ['predicted', 'Predicted', true], ['food', 'Food', true],
@@ -30,7 +30,7 @@
       pac: g('--pac'), food: g('--food'), scared: g('--scared'), rule: g('--rule'), ink: g('--ink'),
       inkDim: g('--ink-dim'), faint: g('--ink-faint'), bg: g('--bg'), surface: g('--surface-2'),
       none: g('--role-none'),
-      role: Object.fromEntries(['chaser', 'interceptor', 'blocker', 'sweeper', 'capsule_guard']
+      role: Object.fromEntries(['chaser', 'interceptor', 'blocker', 'sweeper', 'capsule_guard', 'blinky', 'pinky', 'inky', 'clyde']
         .map((r) => [r, g('--role-' + r)])),
     };
   }
@@ -270,11 +270,11 @@
 
     // ghosts
     f.ghosts.forEach((g, i) => {
-      const p = pv && pv.ghosts[i] ? lerpPos(pv.ghosts[i].pos, g.pos, k) : g.pos;
+      const p = pv && pv.ghosts[i] ? lerpPos(pv.ghosts[i].fpos || pv.ghosts[i].pos, g.fpos || g.pos, k) : (g.fpos || g.pos);
       drawGhost(cx(p[0]), cy(p[1]), cell * 0.4, g);
     });
     // pac-man
-    const pp = pv ? lerpPos(pv.pacman.pos, f.pacman.pos, k) : f.pacman.pos;
+    const pp = pv ? lerpPos(pv.pacman.fpos || pv.pacman.pos, f.pacman.fpos || f.pacman.pos, k) : (f.pacman.fpos || f.pacman.pos);
     drawPac(cx(pp[0]), cy(pp[1]), cell * 0.42, f.pacman.dir, f.tick);
 
     // ribbon playhead

@@ -552,6 +552,12 @@ def readCommand(argv):
                       help='Fixes the random seed to always play the same game', default=False)
     parser.add_option('--ghostRespawnDelay', type='int', dest='ghostRespawnDelay',
                       help=default('Rounds an eaten ghost waits at its start tile before hunting again'), default=0)
+    parser.add_option('--arcade', action='store_true', dest='arcade', default=False,
+                      help='Real arcade Pac-Man rules (see ../docs/ARCADE_MODE.md); default is the Berkeley rules')
+    parser.add_option('--arcadeLevel', type='int', dest='arcadeLevel', default=1,
+                      help=default('Arcade level 1-21+ (speeds, fright time, scatter/chase schedule)'))
+    parser.add_option('--arcadeFrames', type='int', dest='arcadeFrames', default=4,
+                      help=default('Arcade frames per round (smaller = finer sub-tile steps)'))
     parser.add_option('-r', '--recordActions', action='store_true', dest='record',
                       help='Writes game histories to a file (named by the time they were played)', default=False)
     parser.add_option('--replay', dest='gameToReplay',
@@ -571,6 +577,10 @@ def readCommand(argv):
     if len(otherjunk) != 0:
         raise Exception('Command line input not understood: ' + str(otherjunk))
     args = dict()
+
+    if options.arcade:
+        import arcadeRules
+        arcadeRules.install(sys.modules[__name__], options.arcadeLevel, options.arcadeFrames)
 
     # Fix the random seed
     GhostRules.RESPAWN_DELAY = options.ghostRespawnDelay

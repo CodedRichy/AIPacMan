@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hunt Table: live</title>
+<meta name="description" content="Play arcade-rules Pac-Man in the browser with the ghost commander's orders on a side ticker.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 4a12 12 0 1 0 0 24 12 12 0 0 0 0-24zm0 12 10-6a12 12 0 0 1 0 12z' fill='%23e8c34a'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="fonts.css">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="live.css">
+</head>
+<body>
+<a class="skip" href="#board">Skip to board</a>
+
+<header class="bar">
+  <h1 class="mark"><span class="mark-dot" aria-hidden="true"></span>Hunt Table <small id="modeTag">live play</small></h1>
+  <div class="bar-tools">
+    <nav class="tabs" aria-label="Views">
+      <a href="live.html" aria-current="page">Live</a>
+      <a href="index.html">Replay v1</a>
+    </nav>
+    <label class="field"><span>Trace (v2)</span>
+      <select id="tracePick" aria-label="Replay a v2 trace"><option value="">live game</option></select>
+    </label>
+    <details class="rec" id="rec">
+      <summary>New game</summary>
+      <form id="newForm" class="rec-form">
+        <label class="field"><span>Layout</span>
+          <select name="layout"><option>originalClassic</option><option>mediumClassic</option><option>smallClassic</option><option>contestClassic</option><option>openClassic</option><option>capsuleClassic</option></select></label>
+        <label class="field"><span>Rules</span>
+          <select name="arcade" id="fArcade"><option value="true">Arcade (Dossier)</option><option value="false">Berkeley (default)</option></select></label>
+        <label class="field"><span>Ghosts</span>
+          <select name="ghosts" id="fGhosts"><option>ArcadeGhostTeam</option><option>EnhancedCoordinatedGhostTeam</option><option>CoordinatedGhostTeam</option><option>DirectionalGhost</option><option>RandomGhost</option></select></label>
+        <label class="field"><span>Pac-Man</span>
+          <select name="pacman"><option value="browser">You (keyboard)</option><option>GreedyAgent</option><option>LeftTurnAgent</option></select></label>
+        <label class="field"><span>Level</span><input name="level" type="number" value="1" min="1" max="21"></label>
+        <label class="field"><span>Seed</span><input name="seed" type="number" value="1" min="0"></label>
+        <button type="submit" id="newGo" class="btn solid">Start</button>
+        <output id="newMsg" role="status"></output>
+      </form>
+    </details>
+  </div>
+</header>
+
+<main class="deck">
+  <section class="stage" aria-label="Maze">
+    <dl class="metrics" id="metrics" aria-label="Metrics">
+      <div><dt>Score</dt><dd id="mScore">0</dd></div>
+      <div><dt>Dots left</dt><dd id="mFood">0<span class="of"> / 0</span></dd></div>
+      <div><dt>Phase</dt><dd id="mPhase" class="small">&ndash;</dd></div>
+      <div><dt>Ghost chain</dt><dd id="mChain">&ndash;</dd></div>
+      <div><dt>Tick</dt><dd id="mTick">0</dd></div>
+    </dl>
+
+    <div class="board" id="board" tabindex="0" aria-label="Maze. Arrow keys or W A S D steer Pac-Man. Space pauses.">
+      <canvas id="maze" aria-hidden="true"></canvas>
+      <p class="empty" id="empty">No game running. Open &ldquo;New game&rdquo; above and press Start.</p>
+      <p class="banner" id="banner" role="status" hidden></p>
+    </div>
+
+    <div class="transport live-transport" role="group" aria-label="Game controls">
+      <button class="btn solid" id="bPause" aria-label="Pause">Pause</button>
+      <label class="speed"><span id="rateLbl">15/s</span>
+        <input id="rate" type="range" min="4" max="40" value="15" step="1" aria-label="Tick rate (rounds per second)">
+      </label>
+      <button class="btn" id="bSmooth" aria-pressed="true" title="Interpolate between ticks">Smooth</button>
+      <button class="btn" id="bCmd" aria-pressed="true" title="Show / hide commander (C)">Commander</button>
+    </div>
+    <div class="dpad" aria-label="Touch controls">
+      <button class="btn" data-dir="North" aria-label="Up">&uarr;</button>
+      <button class="btn" data-dir="West" aria-label="Left">&larr;</button>
+      <button class="btn" data-dir="South" aria-label="Down">&darr;</button>
+      <button class="btn" data-dir="East" aria-label="Right">&rarr;</button>
+    </div>
+    <p class="cap" id="rateNote">Tick rate: one tick is 4 arcade frames. 15/s is close to real arcade speed (15.2/s).</p>
+  </section>
+
+  <aside class="dispatch" aria-label="Commander and ghosts">
+    <section id="cmdPanel" class="cmd">
+      <p class="eyebrow eyebrow-split"><span>Commander</span><span id="cmdSrc">no coordinator</span></p>
+      <ol class="ticker" id="ticker" role="log" aria-live="polite" aria-relevant="additions" aria-label="Commander orders"></ol>
+      <p class="cap" id="cmdNote">A display only: it prints what the ghost coordinator reports. It does not play.</p>
+    </section>
+
+    <section>
+      <p class="eyebrow eyebrow-split"><span>Ghosts</span><span>mode</span></p>
+      <ol class="roster" id="roster"></ol>
+    </section>
+
+    <section class="keys">
+      <p class="eyebrow">Keys</p>
+      <p><kbd>&larr;</kbd><kbd>&uarr;</kbd><kbd>&darr;</kbd><kbd>&rarr;</kbd> or <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> steer (he keeps going until you turn) &middot; <kbd>Space</kbd> pause &middot; <kbd>C</kbd> commander</p>
+    </section>
+    <p class="run-meta" id="runMeta"></p>
+  </aside>
+</main>
+
+<script src="live.js"></script>
+</body>
+</html>
