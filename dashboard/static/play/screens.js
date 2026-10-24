@@ -68,7 +68,7 @@ export async function menu(root, ctx) {
   const desc = h('p', { class: 'menu-desc', 'aria-live': 'polite' });
   root.replaceChildren(h('section', { class: 'menu-screen' }, wordmark(true), ul, desc));
   const m = listMenu(ul, MENU, { onFocus: (it) => { desc.textContent = it.desc; }, onActivate: (it) => ctx.go(it.hash) });
-  return { bg: true, back: '#/title', crumb: [], hints: [['↑↓', 'MOVE'], ['Enter', 'SELECT'], ['Esc', 'TITLE']], destroy: m.off };
+  return { bg: true, back: '#/title', crumb: [], hints: [['UP DOWN', 'MOVE'], ['Enter', 'SELECT'], ['Esc', 'TITLE']], destroy: m.off };
 }
 
 // ---- setup (PLAY / WATCH AI) -----------------------------------------------------------------------------------
@@ -109,9 +109,9 @@ export async function setup(root, ctx, kind) {
       const cur = r.choices[idx] || r.choices[0];
       return h('li', { class: 'opt-row', 'aria-current': String(n === row) },
         h('span', { class: 'ol' }, r.label),
-        h('button', { class: 'arrow', 'aria-label': 'previous ' + r.label, onclick: () => { row = n; cycle(-1); } }, '◀'),
+        h('button', { class: 'arrow left', 'aria-label': 'previous ' + r.label, onclick: () => { row = n; cycle(-1); } }, ''),
         h('span', { class: 'ov' }, cur.l),
-        h('button', { class: 'arrow', 'aria-label': 'next ' + r.label, onclick: () => { row = n; cycle(1); } }, '▶'));
+        h('button', { class: 'arrow right', 'aria-label': 'next ' + r.label, onclick: () => { row = n; cycle(1); } }, ''));
     }), h('li', { class: 'opt-row start', 'aria-current': String(row === R.length) }, h('button', { class: 'start-b', 'data-autofocus': '', onclick: start }, kind === 'play' ? 'START GAME' : 'START WATCHING')));
     const r = R[row]; desc.textContent = r ? (r.desc() || '') : 'Enter to begin.';
   }
@@ -136,7 +136,7 @@ export async function setup(root, ctx, kind) {
     else if (e.key === 'ArrowRight' || e.key === 'd') { e.preventDefault(); cycle(1); }
     else if (e.key === 'Enter') { e.preventDefault(); if (row === R.length) start(); else { row = R.length; paint(); } }
   });
-  return { back: '#/menu', crumb: [kind === 'play' ? 'PLAY' : 'WATCH AI'], hints: [['↑↓', 'ROW'], ['←→', 'CHANGE'], ['Enter', 'START'], ['Esc', 'MENU']], destroy: off };
+  return { back: '#/menu', crumb: [kind === 'play' ? 'PLAY' : 'WATCH AI'], hints: [['UP DOWN', 'ROW'], ['LEFT RIGHT', 'CHANGE'], ['Enter', 'START'], ['Esc', 'MENU']], destroy: off };
 }
 
 // ---- run (the game itself) -----------------------------------------------------------------------------------------
@@ -154,7 +154,7 @@ export async function run(root, ctx) {
   const back = kind === 'play' ? '#/play' : '#/watch';
   return { back, crumb: [[back, kind === 'play' ? 'PLAY' : 'WATCH AI'], 'GAME'],
     hints: kind === 'play'
-      ? [['←↑↓→', 'STEER'], ['Space', 'PAUSE'], ['L', 'LAYERS'], ['1-0 H C', 'TOGGLE'], ['Esc', 'QUIT']]
+      ? [['ARROWS', 'STEER'], ['Space', 'PAUSE'], ['L', 'LAYERS'], ['1-0 H C', 'TOGGLE'], ['Esc', 'QUIT']]
       : [['Space', 'PAUSE'], ['L', 'LAYERS'], ['1-0 H C', 'TOGGLE'], ['Esc', 'QUIT']],
     destroy: () => g.destroy() };
 }
@@ -178,7 +178,7 @@ export async function levels(root, ctx) {
     },
     onActivate: ({ L }) => ctx.go('#/levels/' + L.n),
   });
-  return { back: '#/menu', crumb: ['LEVEL SELECT'], hints: [['↑↓', 'MOVE'], ['Enter', 'OPEN'], ['Esc', 'MENU']], destroy: m.off };
+  return { back: '#/menu', crumb: ['LEVEL SELECT'], hints: [['UP DOWN', 'MOVE'], ['Enter', 'OPEN'], ['Esc', 'MENU']], destroy: m.off };
 }
 
 export async function level(root, ctx, n) {
@@ -246,7 +246,7 @@ export async function level(root, ctx, n) {
     if (e.key === 'ArrowLeft' && n > 1) { e.preventDefault(); ctx.go('#/levels/' + (n - 1)); }
   });
   void bundle; void nodes;
-  return { back: '#/levels', crumb: [['#/levels', 'LEVEL SELECT'], `LEVEL ${n < 7 ? n : 'BONUS'}`], hints: [['Enter', 'TRY IT'], ['←→', 'PREV / NEXT LEVEL'], ['Esc', 'LEVELS']],
+  return { back: '#/levels', crumb: [['#/levels', 'LEVEL SELECT'], `LEVEL ${n < 7 ? n : 'BONUS'}`], hints: [['Enter', 'TRY IT'], ['LEFT RIGHT', 'PREV / NEXT LEVEL'], ['Esc', 'LEVELS']],
     destroy: () => { off(); clearTimeout(cmpTimer); if (sv) sv.destroy(); } };
 }
 
@@ -298,7 +298,7 @@ export async function replays(root, ctx) {
   root.replaceChildren(h('section', { class: 'menu-screen wide' }, h('h2', { class: 'screen-t' }, 'REPLAYS'), list.length ? ul : h('p', {}, 'No traces in dashboard/traces yet. Record one with dashboard/record.py.'), desc));
   const items = list.map((t) => ({ t, label: `${t.layout}`.replace('Classic', '').toUpperCase(), tag: `${(t.ghostTeam || '').replace('GhostTeam', '').replace('EnhancedCoordinated', 'ENH-COORD').toUpperCase()}  ${t.score}  ${t.ticks}T` }));
   const m = items.length ? listMenu(ul, items, { onFocus: ({ t }) => { desc.textContent = `${t.name}${/_v2\.jsonl$/.test(t.name) ? '' : ' (schema 1: no sub-tile motion)'}`; }, onActivate: ({ t }) => ctx.go('#/replays/' + encodeURIComponent(t.name)) }) : { off() {} };
-  return { back: '#/menu', crumb: ['REPLAYS'], hints: [['↑↓', 'MOVE'], ['Enter', 'WATCH'], ['Esc', 'MENU']], destroy: m.off };
+  return { back: '#/menu', crumb: ['REPLAYS'], hints: [['UP DOWN', 'MOVE'], ['Enter', 'WATCH'], ['Esc', 'MENU']], destroy: m.off };
 }
 
 export async function replay(root, ctx, name) {
@@ -307,7 +307,7 @@ export async function replay(root, ctx, name) {
   const opts = ctx.app.opts();
   const g = mountGame(wrap, { kind: 'replay', trace: name, layers: ctx.app.layers, tickRate: opts.speed, onLayers: (l) => { ctx.app.layers = l; } });
   return { back: '#/replays', crumb: [['#/replays', 'REPLAYS'], name.length > 28 ? name.slice(0, 26) + '..' : name],
-    hints: [['Space', 'PAUSE'], ['←→', 'STEP (Shift x10)'], ['+ -', 'SPEED'], ['L', 'LAYERS'], ['1-0 H C', 'TOGGLE'], ['Esc', 'LIST']], destroy: () => g.destroy() };
+    hints: [['Space', 'PAUSE'], ['LEFT RIGHT', 'STEP (Shift x10)'], ['+ -', 'SPEED'], ['L', 'LAYERS'], ['1-0 H C', 'TOGGLE'], ['Esc', 'LIST']], destroy: () => g.destroy() };
 }
 
 // ---- options / about -------------------------------------------------------------------------------------------------
@@ -326,8 +326,8 @@ export async function options(root, ctx) {
     ul.replaceChildren(...defs.map((d, n) => {
       const i = Math.max(0, d.ch.findIndex((c) => c[0] === cur[d.id]));
       return h('li', { class: 'opt-row', 'aria-current': String(n === row) }, h('span', { class: 'ol' }, d.label),
-        h('button', { class: 'arrow', 'aria-label': 'previous', onclick: () => { row = n; cyc(-1); } }, '◀'), h('span', { class: 'ov' }, d.ch[i][1]),
-        h('button', { class: 'arrow', 'aria-label': 'next', onclick: () => { row = n; cyc(1); } }, '▶'));
+        h('button', { class: 'arrow left', 'aria-label': 'previous', onclick: () => { row = n; cyc(-1); } }, ''), h('span', { class: 'ov' }, d.ch[i][1]),
+        h('button', { class: 'arrow right', 'aria-label': 'next', onclick: () => { row = n; cyc(1); } }, ''));
     }), h('li', { class: 'opt-row start', 'aria-current': String(row === defs.length) }, h('button', { class: 'start-b', onclick: clear }, 'CLEAR MY SCORES')));
     desc.textContent = defs[row] ? defs[row].note : 'Removes the high scores saved in this browser.';
   };
@@ -345,7 +345,7 @@ export async function options(root, ctx) {
     else if (e.key === 'ArrowLeft') { e.preventDefault(); cyc(-1); }
     else if (e.key === 'ArrowRight' || e.key === 'Enter') { e.preventDefault(); if (row === defs.length) clear(); else cyc(1); }
   });
-  return { back: '#/menu', crumb: ['OPTIONS'], hints: [['↑↓', 'ROW'], ['←→', 'CHANGE'], ['Esc', 'MENU']], destroy: off };
+  return { back: '#/menu', crumb: ['OPTIONS'], hints: [['UP DOWN', 'ROW'], ['LEFT RIGHT', 'CHANGE'], ['Esc', 'MENU']], destroy: off };
 }
 
 export async function about(root, ctx) {

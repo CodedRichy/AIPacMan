@@ -65,3 +65,25 @@ and `house` (`y,x0,x1,doorY,doorXs,exitTile`, or null). Frames add `schema: 2`, 
 | commander | `{source: "getTelemetry"\|"attributes"\|"none", messages: [{id,tick,ghost (0 = all),src,text,target,kind}]}` new orders this tick, derived from coordinator state diffs |
 
 Live SSE (`/live/stream`) events: `header`, `frame`, `status` (`state`, `paused`, `tickRate`), `end`.
+
+### Phase 9 additions (campaign sessions, `POST /api/live/start` with `campaign: true`)
+Frames from a `CampaignSession` (dashboard/session.py) add, additively:
+
+| field | note |
+|---|---|
+| hud | `{lives, level, phase, events, fruit, fruitHistory}`. `lives` counts the Pac-Man in play. `phase`: `ready`, `playing`. `events`: `["fruit",kind,points]`, `["extra"]` (extra life at 10,000) for that tick only. `fruit`: null or `{kind, points, pos}` |
+| ai | present when an AI plays: `{name, depth, decisions, lastMs, avgMs, maxMs, lastNodes, avgNodes}`. Nodes = `GameState.generateSuccessor` calls made while choosing the move |
+
+`status` events add `phase` (`ready`, `playing`, `dying`, `cleared`, `gameover`), `lives`, `level`, `score`. A new game (one
+per life, one per cleared maze) starts with a new `header`; the dots eaten before a death stay eaten.
+
+### Optional telemetry fields for ghost chatter (Phase 10 contract, not emitted until that phase merges)
+Read defensively by the layers panel from `frame.telemetry`; when absent the chatter layer stays empty.
+
+| field | shape |
+|---|---|
+| telemetry.messages | list of `{tick?, from, to ("all" or ghost index), type, payload?, ackOf?}`; `type` is one of SPOTTED, CLAIM, REQUEST_SUPPORT, ACK, HANDOFF, YIELD, WARN (others are drawn as-is). May be the full history each frame: the client de-duplicates on `tick|from|to|type|payload` |
+| telemetry.beliefs | `{ghostIndex: {pacTile: [x, y], age}}`: where each ghost believes Pac-Man is, and how stale that is |
+
+Note on `ghosts[].path`: it is a BFS route computed by the recorder from the ghost's tile to its target, not the route the
+ghost's own planner chose.

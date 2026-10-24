@@ -75,7 +75,7 @@ export function mountGame(root, opts) {
     h('section', {}, h('p', { class: 'eyebrow split' }, h('span', {}, 'Ghosts'), h('span', {}, 'mode')), el.roster), el.meta);
   el.panel = h('aside', { class: 'intel', 'aria-label': 'Intel overlay controls and tickers' },
     h('div', { class: 'intel-head' }, h('span', {}, 'INTEL'), h('kbd', {}, 'L')), el.panelBody);
-  const panelOpen0 = store.get('pac.panel', !attract);
+  const panelOpen0 = store.get('pac.panel', !attract && layers.preset !== 'classic');
   root.replaceChildren(h('div', { class: 'game' + (attract ? ' attract' : '') + (panelOpen0 && !attract ? '' : ' no-panel'), 'data-kind': kind },
     el.cab, attract ? null : el.panel));
   const gameEl = root.firstChild;
@@ -112,10 +112,12 @@ export function mountGame(root, opts) {
   function connect() {
     const es = new EventSource('/live/stream');
     S.es = es;
-    es.addEventListener('header', (e) => onHeader(JSON.parse(e.data)));
-    es.addEventListener('frame', (e) => onFrame(JSON.parse(e.data)));
-    es.addEventListener('status', (e) => onStatus(JSON.parse(e.data)));
-    es.addEventListener('end', (e) => onEnd(JSON.parse(e.data)));
+    // The hub replays the previous session's last header/frame/status to a new subscriber: accept only our own game.
+    const mine = (hd) => hd.layout === P.layout && hd.ghostTeam === P.ghosts && hd.seed >= P.seed && hd.seed < P.seed + 16;
+    es.addEventListener('header', (e) => { const hd = JSON.parse(e.data); if (mine(hd)) { S.accept = true; onHeader(hd); } });
+    es.addEventListener('frame', (e) => { if (S.accept) onFrame(JSON.parse(e.data)); });
+    es.addEventListener('status', (e) => { const s = JSON.parse(e.data); if (s.params && s.params.seed === P.seed) onStatus(s); });
+    es.addEventListener('end', (e) => { if (S.accept) onEnd(JSON.parse(e.data)); });
   }
   async function startLive() {
     el.splash.replaceChildren(h('p', { class: 'splash-t dim' }, 'LOADING'));
@@ -200,7 +202,7 @@ export function mountGame(root, opts) {
     paintPause();
   }
   function splash(text, color, sub) {
-    el.splash.replaceChildren(h('p', { class: 'splash-t ' + color }, text), sub ? h('p', { class: 'splash-s' }, sub) : null);
+    el.splash.replaceChildren(...[h('p', { class: 'splash-t ' + color }, text), sub ? h('p', { class: 'splash-s' }, sub) : null].filter(Boolean));
   }
   function paintPause() { if (opts.onPause) opts.onPause(S.paused); }
 
@@ -231,7 +233,7 @@ export function mountGame(root, opts) {
     }
     // tickers
     const c = f.commander || { source: 'none', messages: [] };
-    const src = el.cmdSec.querySelector('#cmdSrc'); if (src) setText(src, 'src', c.source === 'none' ? 'no coordinator' : c.source);
+    const src = el.cmdSec.querySelector('#cmdSrc'); if (src) setText(src, 'src', c.source === 'none' ? 'no coordinator' : c.source.replace(/^get/, '').toLowerCase());
     for (const m of c.messages) addLane(el.cmdLane, m, f);
     if (!el.cmdLane.children.length) el.cmdLane.append(h('li', { class: 'none' }, 'Waiting for the coordinator...'));
     const msgs = LY.readMessages(f);
@@ -239,7 +241,7 @@ export function mountGame(root, opts) {
     if (!msgs.length && !el.chatLane.children.length) el.chatLane.append(h('li', { class: 'none' }, 'No messages: this team does not publish any.'));
     // roster
     if (f.tick % 3 === 0 || !el.roster.children.length) drawRoster(f);
-    if (f.ai) drawAi(f.ai);
+    if (f.ai) drawAi(f.ai); else el.ai.hidden = true;
     if (layers.preset === 'teacher' && f.tick % 4 === 0) {
       const text = LY.captions(f, S.prevFrame).join(' ');
       if (text !== S.capText) { S.capText = text; el.caption.replaceChildren(...LY.captions(f, S.prevFrame).map((l) => h('span', { class: 'cap-line' }, l))); }
@@ -359,14 +361,17 @@ export function mountGame(root, opts) {
   // ---- go ------------------------------------------------------------------------------------------------------
   if (S.live) startLive(); else startTrace();
 
-  return {
-    togglePause, seek, setPanel, state: S, view,
+  const api_ = {
+    togglePause, seek, setPanel, setLayers, state: S, view,
     destroy() {
       abort.abort();
       clearInterval(S.timer);
       if (S.es) S.es.close();
       view.destroy();
       if (S.live) fetch('/api/live/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', keepalive: true }).catch(() => {});
+      if (window.__pac === api_) window.__pac = null;
     },
   };
+  if (!attract) window.__pac = api_;      // debug handle for tests and screenshots
+  return api_;
 }

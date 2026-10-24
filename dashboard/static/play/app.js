@@ -82,7 +82,7 @@ function drawFooter(s) {
   const items = (s.crumb && s.crumb.length) ? trail : [[null, 'TITLE']];
   crumbEl.replaceChildren(...items.flatMap(([href, label], i) => [
     i ? h('span', { class: 'sep', 'aria-hidden': 'true' }, '>') : null,
-    href && i < items.length - 1 ? h('a', { href }, label) : h('span', { 'aria-current': i === items.length - 1 ? 'page' : null }, label)]));
+    href && i < items.length - 1 ? h('a', { href }, label) : h('span', { 'aria-current': i === items.length - 1 ? 'page' : null }, label)].filter(Boolean)));
   hintEl.replaceChildren(...(s.hints || []).map(([k, v]) => h('span', { class: 'hint' }, h('kbd', {}, k), ' ' + v)));
 }
 

@@ -86,6 +86,7 @@ export function mountSearchViz(root, { auto } = {}) {
     el.status.textContent = 'Running the real search...';
     try {
       S.data = await fetchViz(S.algo, S.maze);
+      el.status.textContent = `Replaying the order in which ${S.data.label} expanded cells...`;
       S.i = 0; S.pathI = 0; S.expSet = new Map(); S.front = new Set(); S.phase = 'expanding';
       el.exp.textContent = '0'; el.cost.textContent = '-'; el.front.textContent = '0';
       el.box.style.setProperty('--ar', `${S.data.width} / ${S.data.height}`);

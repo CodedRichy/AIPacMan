@@ -229,7 +229,7 @@ export class ArcadeView {
     for (const v of this.trail.values()) if (v > max) max = v;
     for (const [key, v] of this.trail) {
       const [x, y] = key.split(',').map(Number);
-      ctx.fillStyle = alpha('oklch(0.8 0.17 60)', Math.min(0.55, 0.12 + 0.43 * v / max));
+      ctx.fillStyle = alpha('oklch(0.8 0.17 60)', Math.min(0.4, 0.07 + 0.33 * v / max));
       ctx.fillRect(this.ox + x * c + 1, this.oy + (this.header.height - 1 - y) * c + 1, c - 2, c - 2);
     }
   }

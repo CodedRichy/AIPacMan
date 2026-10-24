@@ -93,22 +93,19 @@ export const LEVELS = [
   },
 ];
 
-/** Inline SVG for a left-to-right flow with an optional loop-back arrow. All text is escaped here. */
+/** Inline SVG: a vertical flow (reads well in a narrow column) with an optional loop-back arrow. Text is escaped here. */
 export function flowSvg(flow) {
   const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-  const n = flow.nodes.length, bw = 150, gap = 38, H = flow.loop ? 128 : 88, W = n * bw + (n - 1) * gap + 8;
-  let s = `<svg class="flow" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(flow.nodes.map((x) => x[0]).join(' to '))}" preserveAspectRatio="xMidYMid meet">`;
+  const n = flow.nodes.length, bh = 50, gap = 24, W = 340, H = n * bh + (n - 1) * gap + (flow.loop ? 34 : 8) + 8;
+  let s = `<svg class="flow" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(flow.nodes.map((x) => x[0]).join(' then '))}" preserveAspectRatio="xMidYMin meet">`;
   flow.nodes.forEach(([t, sub], i) => {
-    const x = 4 + i * (bw + gap);
-    s += `<rect x="${x}" y="6" width="${bw}" height="62" class="fb"/><text x="${x + bw / 2}" y="30" class="ft">${esc(t)}</text>`;
-    const words = String(sub).split(' '), lines = [''];
-    for (const w of words) { if ((lines[lines.length - 1] + ' ' + w).trim().length > 21) lines.push(w); else lines[lines.length - 1] = (lines[lines.length - 1] + ' ' + w).trim(); }
-    lines.slice(0, 2).forEach((ln, j) => { s += `<text x="${x + bw / 2}" y="${46 + j * 13}" class="fs">${esc(ln)}</text>`; });
-    if (i < n - 1) s += `<path d="M${x + bw + 6} 37 H${x + bw + gap - 8}" class="fa"/><path d="M${x + bw + gap - 14} 31 l7 6 l-7 6" class="fa"/>`;
+    const y = 4 + i * (bh + gap);
+    s += `<rect x="4" y="${y}" width="300" height="${bh}" class="fb"/><text x="154" y="${y + 21}" class="ft">${esc(t)}</text><text x="154" y="${y + 38}" class="fs">${esc(sub)}</text>`;
+    if (i < n - 1) s += `<path d="M154 ${y + bh + 3} V${y + bh + gap - 4}" class="fa"/><path d="M148 ${y + bh + gap - 11} l6 8 l6 -8" class="fa"/>`;
   });
   if (flow.loop) {
-    const x0 = 4 + bw / 2, x1 = W - 4 - bw / 2;
-    s += `<path d="M${x1} 70 V100 H${x0} V74" class="fa dash"/><path d="M${x0 - 6} 80 l6 -8 l6 8" class="fa"/><text x="${W / 2}" y="118" class="fs mid">${esc(flow.loop)}</text>`;
+    const y0 = 4 + bh / 2, y1 = 4 + (n - 1) * (bh + gap) + bh / 2;
+    s += `<path d="M304 ${y1} H326 V${y0} H310" class="fa dash"/><path d="M316 ${y0 - 6} l-8 6 l8 6" class="fa"/><text x="170" y="${H - 8}" class="fs mid">${esc(flow.loop)}</text>`;
   }
   return s + '</svg>';
 }
